@@ -250,6 +250,33 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
     };
   }, [isOpen, sessionId, target, filePath, handleRefresh]);
 
+  // Fallback: staging operations always record a timeline event, while status updates can be throttled/skipped.
+  // This keeps the overlay in sync when users stage/unstage via the RightPanel checkboxes.
+  useEffect(() => {
+    if (!isOpen || !sessionId || !target) return;
+    if (target.kind !== 'working' || !filePath) return;
+    const unsub = window.electronAPI?.events?.onTimelineEvent?.((data) => {
+      if (!data || data.sessionId !== sessionId) return;
+      const e = data.event as { kind?: unknown; status?: unknown; meta?: unknown } | undefined;
+      if (!e || e.kind !== 'git.command') return;
+      if (e.status !== 'finished' && e.status !== 'failed') return;
+      const meta = (e.meta || {}) as Record<string, unknown>;
+      const source = typeof meta.source === 'string' ? meta.source : '';
+      if (source !== 'gitStaging') return;
+
+      if (overlayRefreshTimerRef.current) {
+        window.clearTimeout(overlayRefreshTimerRef.current);
+      }
+      overlayRefreshTimerRef.current = window.setTimeout(() => {
+        overlayRefreshTimerRef.current = null;
+        void handleRefresh();
+      }, 80);
+    });
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [isOpen, sessionId, target, filePath, handleRefresh]);
+
   if (!isOpen) return null;
 
   const workingScope = target?.kind === 'working' ? (target.scope || 'all') : null;

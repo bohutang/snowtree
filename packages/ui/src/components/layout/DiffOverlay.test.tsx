@@ -21,6 +21,7 @@ describe('DiffOverlay', () => {
     (window as any).electronAPI = {
       events: {
         onGitStatusUpdated: vi.fn(),
+        onTimelineEvent: vi.fn(),
       },
     };
   });
@@ -74,6 +75,40 @@ describe('DiffOverlay', () => {
     const callsBefore = (API.sessions.getDiff as any).mock.calls.length;
     await act(async () => {
       cb?.({ sessionId: 's1', gitStatus: { state: 'modified' } });
+      await new Promise((r) => setTimeout(r, 120));
+    });
+
+    await waitFor(() => {
+      expect((API.sessions.getDiff as any).mock.calls.length).toBeGreaterThan(callsBefore);
+    });
+  });
+
+  it('refreshes when git staging timeline events arrive while open', async () => {
+    const onTimelineEvent = (window as any).electronAPI.events.onTimelineEvent as any;
+    let cb: ((data: any) => void) | null = null;
+    onTimelineEvent.mockImplementation((fn: any) => {
+      cb = fn;
+      return () => {};
+    });
+
+    render(
+      <DiffOverlay
+        isOpen={true}
+        sessionId="s1"
+        filePath="a.txt"
+        target={{ kind: 'working', scope: 'all' } as any}
+        onClose={vi.fn()}
+        files={[]}
+      />
+    );
+
+    await waitFor(() => {
+      expect(onTimelineEvent).toHaveBeenCalled();
+    });
+
+    const callsBefore = (API.sessions.getDiff as any).mock.calls.length;
+    await act(async () => {
+      cb?.({ sessionId: 's1', event: { kind: 'git.command', status: 'finished', meta: { source: 'gitStaging' } } });
       await new Promise((r) => setTimeout(r, 120));
     });
 
