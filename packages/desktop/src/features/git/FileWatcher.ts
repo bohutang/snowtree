@@ -175,7 +175,11 @@ export class GitFileWatcher extends EventEmitter {
   }
 
   private handleGitMetadataChange(sessionId: string, filename: string, eventType: string): void {
-    this.logger?.info(`[GitFileWatcher] Git metadata change: ${eventType} ${filename} for session ${sessionId}`);
+    // Ignore lock files - they are temporary and don't represent actual state changes
+    if (filename.endsWith('.lock')) {
+      return;
+    }
+    
     const session = this.watchedSessions.get(sessionId);
     if (!session) return;
     session.lastModified = Date.now();
@@ -299,9 +303,6 @@ export class GitFileWatcher extends EventEmitter {
     session.pendingRefresh = false;
 
     try {
-      // Keep GitFileWatcher strictly about file events: any actual git checks happen in GitExecutor
-      // so the timeline remains the single source of truth.
-      this.logger?.info(`[GitFileWatcher] Session ${sessionId} needs refresh`);
       this.emit('needs-refresh', sessionId);
     } catch (error) {
       this.logger?.error(`[GitFileWatcher] Error checking session ${sessionId}:`, error as Error);

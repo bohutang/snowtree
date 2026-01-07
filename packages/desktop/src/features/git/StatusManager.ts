@@ -65,8 +65,6 @@ export class GitStatusManager extends EventEmitter {
     // Initialize file watcher for smart refresh detection
     this.fileWatcher = new GitFileWatcher(logger);
     this.fileWatcher.on('needs-refresh', (sessionId: string) => {
-      // File watcher detected changes, refresh git status
-      this.logger?.info(`[GitStatus] File watcher triggered refresh for session ${sessionId}`);
       this.refreshSessionGitStatus(sessionId, false).catch(error => {
         this.logger?.error(`[GitStatus] Failed to refresh after file change for session ${sessionId}:`, error);
       });
@@ -487,7 +485,6 @@ export class GitStatusManager extends EventEmitter {
         if (session?.worktreePath) {
           const hasChanged = await this.hasGitStatusChanged(sessionId, session.worktreePath);
           if (!hasChanged) {
-            this.logger?.info(`[GitStatus] Quick check: no changes for session ${sessionId}, skipping refresh`);
             // Still emit updated to clear loading state even if no changes
             const cached = this.cache[sessionId]?.status || null;
             if (cached) {
