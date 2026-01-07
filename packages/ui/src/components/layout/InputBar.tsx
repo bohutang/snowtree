@@ -608,7 +608,6 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     void loadAvailability();
   }, [loadAvailability]);
 
-  const agentColor = selectedTool === 'claude' ? '#c678dd' : '#56b6c2';
   const agentName = selectedTool === 'claude' ? 'Claude' : 'Codex';
   const selectedSettings = toolSettings[selectedTool];
   const availabilityForSelected = aiToolsStatus?.[selectedTool];
@@ -621,7 +620,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       <div className="flex">
         <div
           className="w-[2px] self-stretch transition-colors duration-150"
-          style={{ backgroundColor: isFocused || isRunning ? agentColor : 'var(--st-border-variant)' }}
+          style={{ backgroundColor: isFocused || isRunning ? 'var(--st-accent)' : 'var(--st-border-variant)' }}
         />
 
         <div className="flex-1 min-w-0 flex flex-col">
@@ -663,7 +662,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
               </div>
 
               <div className="flex items-center gap-2 mt-2 text-[12px]">
-                <span style={{ color: agentColor }}>{agentName}</span>
+                <span style={{ color: 'var(--st-accent)' }}>{agentName}</span>
                 {modelInfo && (
                   <span style={{ color: 'var(--st-text)' }}>{modelInfo}</span>
                 )}
@@ -687,7 +686,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
             <div className="flex items-center gap-2">
               {isRunning && (
                 <>
-                  <KnightRiderSpinner color={agentColor} />
+                  <KnightRiderSpinner color="var(--st-accent)" />
                   <span style={{ color: escPending ? 'var(--st-accent)' : 'var(--st-text)' }}>
                     esc{' '}
                     <span style={{ color: escPending ? 'var(--st-accent)' : 'var(--st-text-faint)' }}>

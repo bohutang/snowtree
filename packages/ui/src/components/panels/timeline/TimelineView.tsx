@@ -5,10 +5,10 @@ import { withTimeout } from '../../../utils/withTimeout';
 import type { TimelineEvent } from '../../../types/timeline';
 import { formatDistanceToNow, parseTimestamp } from '../../../utils/timestampUtils';
 
-// Professional color scheme - more impactful contrast
 const colors = {
   bg: 'var(--st-bg)',
   surface: 'var(--st-surface)',
+  accent: 'var(--st-accent)',
   text: {
     primary: 'var(--st-text)',
     secondary: 'color-mix(in srgb, var(--st-text) 70%, transparent)',
@@ -16,16 +16,14 @@ const colors = {
     faint: 'color-mix(in srgb, var(--st-text) 35%, transparent)',
   },
   status: {
-    done: '#4ade80',
-    running: '#fbbf24', 
-    error: '#f87171',
+    done: 'var(--st-text-muted)',
+    running: 'var(--st-accent)', 
+    error: 'var(--st-danger)',
   },
-  // User message card
   userCard: {
     bg: 'color-mix(in srgb, var(--st-surface) 80%, var(--st-bg))',
     border: 'color-mix(in srgb, var(--st-border) 50%, transparent)',
   },
-  // Command section
   command: {
     bg: 'color-mix(in srgb, var(--st-bg) 60%, transparent)',
     hover: 'color-mix(in srgb, var(--st-surface) 40%, transparent)',
