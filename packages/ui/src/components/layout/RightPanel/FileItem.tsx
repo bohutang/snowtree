@@ -4,7 +4,7 @@ import { getTypeInfo } from './utils';
 import type { FileItemProps } from './types';
 
 export const FileItem: React.FC<FileItemProps> = React.memo(
-  ({ file, onClick, isSelected, testId }) => {
+  ({ file, onClick, isSelected, hideStats, testId }) => {
     const [isHovered, setIsHovered] = useState(false);
     const typeInfo = getTypeInfo(file.type);
     const bg = isSelected
@@ -47,14 +47,16 @@ export const FileItem: React.FC<FileItemProps> = React.memo(
             {file.path}
           </span>
         </div>
-        <div className="flex items-center gap-1.5 text-[10px] flex-shrink-0 ml-2 font-mono">
-          {file.additions > 0 && (
-            <span style={{ color: colors.text.added }}>+{file.additions}</span>
-          )}
-          {file.deletions > 0 && (
-            <span style={{ color: colors.text.deleted }}>-{file.deletions}</span>
-          )}
-        </div>
+        {!hideStats && (
+          <div className="flex items-center gap-1.5 text-[10px] flex-shrink-0 ml-2 font-mono">
+            {file.additions > 0 && (
+              <span style={{ color: colors.text.added }}>+{file.additions}</span>
+            )}
+            {file.deletions > 0 && (
+              <span style={{ color: colors.text.deleted }}>-{file.deletions}</span>
+            )}
+          </div>
+        )}
       </button>
     );
   }

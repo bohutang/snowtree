@@ -123,13 +123,14 @@ export interface ZedDiffViewerProps {
   fileSources?: Record<string, string>;
   scrollToFilePath?: string;
   fileOrder?: string[];
+  isCommitView?: boolean;
   onChanged?: () => void;
   onHunkInfo?: (current: number, total: number) => void;
   onVisibleFileChange?: (path: string | null) => void;
 }
 
 export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>(({ 
-  diff, className, sessionId, currentScope: _currentScope, stagedDiff, unstagedDiff, fileSources, scrollToFilePath, fileOrder, onChanged, onHunkInfo, onVisibleFileChange 
+  diff, className, sessionId, currentScope: _currentScope, stagedDiff, unstagedDiff, fileSources, scrollToFilePath, fileOrder, isCommitView, onChanged, onHunkInfo, onVisibleFileChange 
 }, ref) => {
   const fileHeaderRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [pendingHunkKeys, setPendingHunkKeys] = useState<Set<string>>(() => new Set());
@@ -482,7 +483,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
 
                     const changeKey = getChangeKey(first);
 
-                    const element = (
+                    const element = isCommitView ? null : (
                       <div data-testid="diff-hunk-controls" data-hunk-key={hunkKey} className={`st-diff-hunk-actions-anchor ${statusClass} ${kindClass} ${isFocused ? 'st-hunk-focused' : ''}`}>
                         {hunkStatus === 'staged' && (
                           <div className="st-hunk-staged-badge" aria-label="Hunk staged">

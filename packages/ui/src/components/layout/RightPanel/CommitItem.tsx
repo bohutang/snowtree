@@ -8,6 +8,7 @@ export const CommitItem: React.FC<CommitItemProps> = React.memo(
   ({ commit, isSelected, badge, onClick }) => {
     const [isHovered, setIsHovered] = useState(false);
     const isUncommitted = commit.id === 0;
+    const isBase = commit.id === -1;
     const shortHash = isUncommitted ? '' : commit.after_commit_hash.substring(0, 7);
 
     const handleCopyHash = useCallback(
@@ -85,12 +86,16 @@ export const CommitItem: React.FC<CommitItemProps> = React.memo(
             >
               {shortHash && <span className="font-mono">{shortHash}</span>}
               <span className="font-mono">{formatCommitTime(commit.timestamp)}</span>
-              <span style={{ color: colors.text.added }}>
-                +{commit.stats_additions}
-              </span>
-              <span style={{ color: colors.text.deleted }}>
-                -{commit.stats_deletions}
-              </span>
+              {!isBase && (
+                <>
+                  <span style={{ color: colors.text.added }}>
+                    +{commit.stats_additions}
+                  </span>
+                  <span style={{ color: colors.text.deleted }}>
+                    -{commit.stats_deletions}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </button>

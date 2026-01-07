@@ -260,6 +260,52 @@ export function Sidebar() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!window.electronAPI?.events?.onSessionCreated) return;
+
+    const unsubscribe = window.electronAPI.events.onSessionCreated((session) => {
+      const project = projects.find((p) => p.id === session.projectId);
+      if (project) {
+        void loadWorktrees(project, { silent: true });
+      }
+    });
+
+    return unsubscribe;
+  }, [projects, loadWorktrees]);
+
+  useEffect(() => {
+    if (!window.electronAPI?.events?.onGitStatusUpdated) return;
+
+    const unsubscribe = window.electronAPI.events.onGitStatusUpdated((data) => {
+      const { sessionId, gitStatus } = data;
+      const session = sessions.find((s) => s.id === sessionId);
+      if (!session?.worktreePath) return;
+
+      setWorktreesByProjectId((prev) => {
+        const updated: Record<number, Worktree[]> = {};
+        for (const [projectIdStr, worktrees] of Object.entries(prev)) {
+          const projectId = Number(projectIdStr);
+          updated[projectId] = worktrees.map((w) => {
+            if (w.path === session.worktreePath) {
+              const hasChanges = gitStatus.hasUncommittedChanges || gitStatus.hasUntrackedFiles || false;
+              return {
+                ...w,
+                hasChanges,
+                additions: gitStatus.additions ?? 0,
+                deletions: gitStatus.deletions ?? 0,
+                filesChanged: gitStatus.filesChanged ?? 0,
+              };
+            }
+            return w;
+          });
+        }
+        return updated;
+      });
+    });
+
+    return unsubscribe;
+  }, [sessions]);
+
   const beginRenameWorktree = useCallback((worktree: Worktree, sessionId: string | null) => {
     const leafName = worktree.path.split('/').filter(Boolean).pop() || worktree.path;
     setEditingWorktreePath(worktree.path);

@@ -705,6 +705,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
             unstagedDiff={unstagedDiff ?? undefined}
             fileSources={filePath && fileSource != null ? { [filePath]: fileSource } : (fileSources ?? undefined)}
             fileOrder={viewerFiles.length > 0 ? viewerFiles.map((f) => f.path) : undefined}
+            isCommitView={target?.kind === 'commit'}
             onChanged={handleRefresh}
             onHunkInfo={handleHunkInfo}
             onVisibleFileChange={handleVisibleFileChange}

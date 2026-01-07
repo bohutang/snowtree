@@ -63,7 +63,13 @@ export const FileChangeList: React.FC<FileChangeListProps> = React.memo(
       );
     }
 
-    if (error) {
+    const isIgnorableError = error && (
+      error.includes('ENOENT') ||
+      error.includes('spawn git') ||
+      error.includes('not a git repository')
+    );
+
+    if (error && !isIgnorableError) {
       return (
         <div className="flex flex-col items-center justify-center py-6 gap-2">
           <span className="text-xs" style={{ color: colors.text.deleted }}>

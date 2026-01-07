@@ -16,6 +16,7 @@ export interface FileItemProps {
   file: FileChange;
   onClick: () => void;
   isSelected: boolean;
+  hideStats?: boolean;
   testId?: string;
 }
 
