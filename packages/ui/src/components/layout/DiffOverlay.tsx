@@ -223,55 +223,23 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
           return;
         }
 
-        if (target.kind === 'working' && filePath) {
-          const [allRes, stagedRes, unstagedRes] = await Promise.all([
-            withTimeout(API.sessions.getDiff(sessionId, { kind: 'working', scope: 'all' } as any), 15_000, 'Load diff'),
-            withTimeout(API.sessions.getDiff(sessionId, { kind: 'working', scope: 'staged' } as any), 15_000, 'Load staged diff'),
-            withTimeout(API.sessions.getDiff(sessionId, { kind: 'working', scope: 'unstaged' } as any), 15_000, 'Load unstaged diff'),
-          ]);
-
-          if (!allRes.success) throw new Error(allRes.error || 'Failed to load diff');
-          if (!stagedRes.success) throw new Error(stagedRes.error || 'Failed to load staged diff');
-          if (!unstagedRes.success) throw new Error(unstagedRes.error || 'Failed to load unstaged diff');
-
-          setDiff(allRes.data?.diff ?? '');
-          setStagedDiff(stagedRes.data?.diff ?? '');
-          setUnstagedDiff(unstagedRes.data?.diff ?? '');
-
-          // Best-effort: HEAD may not contain new/untracked files.
-          const preferredRef = target.scope === 'untracked' ? 'WORKTREE' : 'HEAD';
-          let sourceRes = await withTimeout(
-            API.sessions.getFileContent(sessionId, { filePath, ref: preferredRef, maxBytes: 1024 * 1024 }),
-            15_000,
-            'Load file content'
-          );
-          if (!sourceRes.success && preferredRef !== 'WORKTREE') {
-            sourceRes = await withTimeout(
-              API.sessions.getFileContent(sessionId, { filePath, ref: 'WORKTREE', maxBytes: 1024 * 1024 }),
-              15_000,
-              'Load file content'
-            );
-          }
-          setFileSource(sourceRes.success ? (sourceRes.data?.content ?? '') : null);
+        const response = await withTimeout(API.sessions.getDiff(sessionId, target), 15_000, 'Load diff');
+        if (response.success && response.data) {
+          setDiff(response.data.diff ?? '');
+          setStagedDiff(null);
+          setUnstagedDiff(null);
+          setFileSource(null);
+          setFileSources(null);
         } else {
-          const response = await withTimeout(API.sessions.getDiff(sessionId, target), 15_000, 'Load diff');
-          if (response.success && response.data) {
-            setDiff(response.data.diff ?? '');
-            setStagedDiff(null);
-            setUnstagedDiff(null);
-            setFileSource(null);
-            setFileSources(null);
-          } else {
-            const message = response.error || 'Failed to load diff';
-            const isStaleCommit =
-              target.kind === 'commit' &&
-              /commit not found|bad object|unknown revision|invalid object name|ambiguous argument/i.test(message);
-            if (isStaleCommit) {
-              onClose();
-              return;
-            }
-            setError(message);
+          const message = response.error || 'Failed to load diff';
+          const isStaleCommit =
+            target.kind === 'commit' &&
+            /commit not found|bad object|unknown revision|invalid object name|ambiguous argument/i.test(message);
+          if (isStaleCommit) {
+            onClose();
+            return;
           }
+          setError(message);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load diff');

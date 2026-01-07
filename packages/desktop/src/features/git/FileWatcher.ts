@@ -175,6 +175,7 @@ export class GitFileWatcher extends EventEmitter {
   }
 
   private handleGitMetadataChange(sessionId: string, filename: string, eventType: string): void {
+    this.logger?.info(`[GitFileWatcher] Git metadata change: ${eventType} ${filename} for session ${sessionId}`);
     const session = this.watchedSessions.get(sessionId);
     if (!session) return;
     session.lastModified = Date.now();
@@ -222,7 +223,11 @@ export class GitFileWatcher extends EventEmitter {
 
   private startGitMetadataWatch(sessionId: string, worktreePath: string): FSWatcher[] {
     const gitdir = resolveGitDir(worktreePath);
-    if (!gitdir) return [];
+    this.logger?.info(`[GitFileWatcher] Starting git metadata watch for session ${sessionId}, gitdir: ${gitdir}`);
+    if (!gitdir) {
+      this.logger?.warn(`[GitFileWatcher] Could not resolve gitdir for ${worktreePath}`);
+      return [];
+    }
 
     // Zed-style: watch git metadata files that reflect status changes instantly.
     const paths = [
@@ -231,6 +236,7 @@ export class GitFileWatcher extends EventEmitter {
       join(gitdir, 'logs', 'HEAD'),
       join(gitdir, 'packed-refs'),
     ];
+    this.logger?.info(`[GitFileWatcher] Watching paths: ${paths.join(', ')}`);
 
     const watchers: FSWatcher[] = [];
 

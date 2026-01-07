@@ -172,8 +172,10 @@ export class GitStatusManager extends EventEmitter {
     const previousActive = this.activeSessionId;
     this.activeSessionId = sessionId;
     
+    this.logger?.info(`[GitStatus] setActiveSession called: ${previousActive} -> ${sessionId}`);
+    
     if (previousActive !== sessionId) {
-      console.log(`[GitStatus] Active session changed from ${previousActive} to ${sessionId}`);
+      this.logger?.info(`[GitStatus] Active session changed from ${previousActive} to ${sessionId}`);
       
       // Start watching the active session's files if we have one
       if (sessionId) {
@@ -198,11 +200,15 @@ export class GitStatusManager extends EventEmitter {
    * Start file watching for a session
    */
   private async startWatchingSession(sessionId: string): Promise<void> {
+    this.logger?.info(`[GitStatus] startWatchingSession called for ${sessionId}`);
     try {
       const session = await this.sessionManager.getSession(sessionId);
+      this.logger?.info(`[GitStatus] Got session for ${sessionId}: worktreePath=${session?.worktreePath}`);
       if (session?.worktreePath) {
         this.fileWatcher.startWatching(sessionId, session.worktreePath);
         this.logger?.info(`[GitStatus] Started file watching for session ${sessionId}`);
+      } else {
+        this.logger?.warn(`[GitStatus] No worktreePath for session ${sessionId}`);
       }
     } catch (error) {
       this.logger?.error(`[GitStatus] Failed to start file watching for session ${sessionId}:`, error as Error);

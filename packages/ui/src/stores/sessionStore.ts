@@ -26,12 +26,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   gitStatusLoading: new Set(),
   isLoaded: false,
 
-  loadSessions: (sessions) => set((state) => {
+  loadSessions: (sessions) => {
+    const state = get();
     const activeSessionId = state.activeSessionId && sessions.some((s) => s.id === state.activeSessionId)
       ? state.activeSessionId
       : null;
-    return { sessions, isLoaded: true, activeSessionId };
-  }),
+    
+    // Notify backend of restored active session so FileWatcher can start
+    if (activeSessionId) {
+      void window.electronAPI?.invoke('sessions:set-active-session', activeSessionId);
+    }
+    
+    set({ sessions, isLoaded: true, activeSessionId });
+  },
 
   addSession: (session) => set((state) => ({
     sessions: [session, ...state.sessions],

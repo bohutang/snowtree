@@ -10,7 +10,7 @@ type CreateProjectRequest = {
 };
 
 export function registerProjectHandlers(ipcMain: IpcMain, services: AppServices): void {
-  const { databaseService, sessionManager, worktreeManager, claudeExecutor, codexExecutor, gitExecutor } = services;
+  const { databaseService, sessionManager, worktreeManager, claudeExecutor, codexExecutor, gitExecutor, gitStatusManager } = services;
 
   ipcMain.handle('projects:get-all', async () => {
     try {
@@ -202,9 +202,13 @@ export function registerProjectHandlers(ipcMain: IpcMain, services: AppServices)
       // If this is the main repo worktree, attach (or create) a main repo session.
       if (isMain) {
         const existing = databaseService.getMainRepoSession(projectId);
-        if (existing) return { success: true, data: { id: existing.id } };
+        if (existing) {
+          gitStatusManager.setActiveSession(existing.id);
+          return { success: true, data: { id: existing.id } };
+        }
         const mainSession = await sessionManager.getOrCreateMainRepoSession(projectId);
         sessionManager.emitSessionCreated(mainSession);
+        gitStatusManager.setActiveSession(mainSession.id);
         return { success: true, data: { id: mainSession.id } };
       }
 
@@ -212,7 +216,10 @@ export function registerProjectHandlers(ipcMain: IpcMain, services: AppServices)
       const existing = databaseService.getAllSessions(projectId).find(
         (s) => s.worktree_path?.replace(/\/+$/, '') === normalizedWorktreePath
       );
-      if (existing) return { success: true, data: { id: existing.id } };
+      if (existing) {
+        gitStatusManager.setActiveSession(existing.id);
+        return { success: true, data: { id: existing.id } };
+      }
 
       // Detect base branch (repo default branch) for commit history comparison.
       const baseBranch = await (async (): Promise<string> => {
@@ -278,6 +285,7 @@ export function registerProjectHandlers(ipcMain: IpcMain, services: AppServices)
         undefined
       );
       sessionManager.emitSessionCreated(session);
+      gitStatusManager.setActiveSession(session.id);
       return { success: true, data: { id: session.id } };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to open worktree' };
