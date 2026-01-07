@@ -1,12 +1,43 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { X, ArrowLeft, RefreshCw, Copy, Check } from 'lucide-react';
-import { ZedDiffViewer } from '../panels/diff/ZedDiffViewer';
+import { X, ArrowLeft, RefreshCw, Copy, Check, ChevronUp, ChevronDown, Plus, Minus } from 'lucide-react';
+import { ZedDiffViewer, type ZedDiffViewerHandle } from '../panels/diff/ZedDiffViewer';
 import { API } from '../../utils/api';
 import { withTimeout } from '../../utils/withTimeout';
 import type { DiffOverlayProps } from './types';
 
 const border = 'color-mix(in srgb, var(--st-border) 70%, transparent)';
 const hoverBg = 'color-mix(in srgb, var(--st-hover) 42%, transparent)';
+
+const ToolbarButton: React.FC<{
+  onClick: () => void;
+  disabled?: boolean;
+  title: string;
+  children: React.ReactNode;
+  variant?: 'default' | 'primary' | 'icon';
+}> = ({ onClick, disabled, title, children, variant = 'default' }) => {
+  const baseStyles = 'flex items-center gap-1.5 rounded st-focus-ring transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
+  const variantStyles = {
+    default: 'px-2.5 py-1 text-xs font-medium text-[color:var(--st-text-muted)] hover:text-[color:var(--st-text)] hover:bg-[color:var(--st-hover)]',
+    primary: 'px-3 py-1.5 text-xs font-medium bg-[color:var(--st-accent)] text-black hover:brightness-110',
+    icon: 'p-1.5 text-[color:var(--st-text-faint)] hover:text-[color:var(--st-text)] hover:bg-[color:var(--st-hover)]',
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`${baseStyles} ${variantStyles[variant]}`}
+      title={title}
+    >
+      {children}
+    </button>
+  );
+};
+
+const ToolbarDivider: React.FC = () => (
+  <div className="h-4 w-px mx-1" style={{ backgroundColor: border }} />
+);
 
 const IconButton: React.FC<{
   onClick: () => void;
@@ -49,6 +80,12 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const overlayRefreshTimerRef = useRef<number | null>(null);
+  
+  const [currentHunkIndex, setCurrentHunkIndex] = useState(0);
+  const [totalHunks, setTotalHunks] = useState(0);
+  const [visibleFilePath, setVisibleFilePath] = useState<string | null>(null);
+  const [stagingInProgress, setStagingInProgress] = useState(false);
+  const diffViewerRef = useRef<ZedDiffViewerHandle | null>(null);
 
   const derivedFiles = useMemo(() => {
     if (!diff) return [];
@@ -426,9 +463,35 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
     };
   }, [isOpen, sessionId, target, filePath, handleRefresh]);
 
+  const handleHunkNavigation = useCallback((direction: 'prev' | 'next') => {
+    diffViewerRef.current?.navigateToHunk(direction);
+  }, []);
+
+  const handleStageAll = useCallback(async (stage: boolean) => {
+    if (!sessionId || stagingInProgress) return;
+    setStagingInProgress(true);
+    try {
+      await diffViewerRef.current?.stageAll(stage);
+      handleRefresh();
+    } finally {
+      setStagingInProgress(false);
+    }
+  }, [sessionId, stagingInProgress, handleRefresh]);
+
+  const handleHunkInfo = useCallback((current: number, total: number) => {
+    setCurrentHunkIndex(current);
+    setTotalHunks(total);
+  }, []);
+
+  const handleVisibleFileChange = useCallback((path: string | null) => {
+    setVisibleFilePath(path);
+  }, []);
+
   if (!isOpen) return null;
 
   const workingScope = target?.kind === 'working' ? (target.scope || 'all') : null;
+  const isWorkingTree = target?.kind === 'working';
+  const hasHunks = totalHunks > 0;
   const workingTitle =
     workingScope === 'staged'
       ? 'Staged Changes'
@@ -530,17 +593,70 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
         </div>
       </div>
 
-      {/* Diff usage hint - only show for staged/unstaged working tree */}
-      {(workingScope === 'staged' || workingScope === 'unstaged') && (
+      {isWorkingTree && (
         <div
-          className="px-3 py-1.5 flex items-center gap-3"
+          className="flex items-center justify-between px-3 py-1.5"
           style={{ backgroundColor: 'var(--st-surface)', borderBottom: `1px solid ${border}` }}
+          data-testid="diff-toolbar"
         >
-          <span className="text-[11px]" style={{ color: 'var(--st-text-faint)' }}>
-            {filePath
-              ? 'Hover a hunk to stage/unstage/restore.'
-              : `Click line numbers to select. Use the +/- button to ${workingScope === 'unstaged' ? 'stage' : 'unstage'} a line or hunk.`}
-          </span>
+          <div className="flex items-center gap-1">
+            <ToolbarButton
+              onClick={() => handleStageAll(true)}
+              disabled={stagingInProgress || !diff}
+              title="Stage all changes"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Stage All</span>
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => handleStageAll(false)}
+              disabled={stagingInProgress || !diff}
+              title="Unstage all changes"
+            >
+              <Minus className="w-3.5 h-3.5" />
+              <span>Unstage All</span>
+            </ToolbarButton>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <ToolbarButton
+              onClick={() => handleHunkNavigation('prev')}
+              disabled={!hasHunks}
+              title="Previous hunk"
+              variant="icon"
+            >
+              <ChevronUp className="w-4 h-4" />
+            </ToolbarButton>
+            {hasHunks && (
+              <span
+                className="text-[11px] font-mono px-1.5 min-w-[40px] text-center"
+                style={{ color: 'var(--st-text-faint)' }}
+              >
+                {currentHunkIndex}/{totalHunks}
+              </span>
+            )}
+            <ToolbarButton
+              onClick={() => handleHunkNavigation('next')}
+              disabled={!hasHunks}
+              title="Next hunk"
+              variant="icon"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </ToolbarButton>
+          </div>
+
+          {visibleFilePath && (
+            <div className="flex items-center gap-1">
+              <ToolbarDivider />
+              <span
+                className="text-[10px] font-mono truncate max-w-[200px]"
+                style={{ color: 'var(--st-text-faint)' }}
+                title={visibleFilePath}
+              >
+                {visibleFilePath.split('/').pop()}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -611,6 +727,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
           </div>
         ) : diff ? (
           <ZedDiffViewer
+            ref={diffViewerRef}
             diff={diff}
             scrollToFilePath={filePath || undefined}
             className="h-full"
@@ -621,6 +738,8 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
             fileSources={filePath && fileSource != null ? { [filePath]: fileSource } : (fileSources ?? undefined)}
             fileOrder={viewerFiles.length > 0 ? viewerFiles.map((f) => f.path) : undefined}
             onChanged={handleRefresh}
+            onHunkInfo={handleHunkInfo}
+            onVisibleFileChange={handleVisibleFileChange}
           />
         ) : (
           <div

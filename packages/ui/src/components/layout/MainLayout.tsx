@@ -377,7 +377,6 @@ export const MainLayout: React.FC = React.memo(() => {
       <div
         className="group w-2 flex-shrink-0 cursor-col-resize relative"
         onMouseDown={handleResizeStart}
-        title="Resize side panel"
         data-testid="resize-handle"
       >
         <div

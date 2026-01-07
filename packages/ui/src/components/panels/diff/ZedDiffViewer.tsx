@@ -1,7 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Diff, Hunk, getChangeKey, parseDiff, textLinesToHunk, type ChangeData, type DiffType, type HunkData } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
 import { API } from '../../../utils/api';
+
+export interface ZedDiffViewerHandle {
+  navigateToHunk: (direction: 'prev' | 'next') => void;
+  stageAll: (stage: boolean) => Promise<void>;
+}
 
 type Scope = 'staged' | 'unstaged' | 'untracked';
 
@@ -107,7 +112,7 @@ function expandToFullFile(hunks: HunkData[], source: string): HunkData[] {
   return output;
 }
 
-export const ZedDiffViewer: React.FC<{
+export interface ZedDiffViewerProps {
   diff: string;
   className?: string;
   sessionId?: string;
@@ -118,7 +123,13 @@ export const ZedDiffViewer: React.FC<{
   scrollToFilePath?: string;
   fileOrder?: string[];
   onChanged?: () => void;
-}> = ({ diff, className, sessionId, currentScope, stagedDiff, unstagedDiff, fileSources, scrollToFilePath, fileOrder, onChanged }) => {
+  onHunkInfo?: (current: number, total: number) => void;
+  onVisibleFileChange?: (path: string | null) => void;
+}
+
+export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>(({ 
+  diff, className, sessionId, currentScope: _currentScope, stagedDiff, unstagedDiff, fileSources, scrollToFilePath, fileOrder, onChanged, onHunkInfo, onVisibleFileChange 
+}, ref) => {
   const fileHeaderRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [pendingHunkKeys, setPendingHunkKeys] = useState<Set<string>>(() => new Set());
 
@@ -281,12 +292,101 @@ export const ZedDiffViewer: React.FC<{
     [sessionId, onChanged, setPending]
   );
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [currentHunkIdx, setCurrentHunkIdx] = useState(0);
+  const [focusedHunkKey, setFocusedHunkKey] = useState<string | null>(null);
+
+  const allHunks = useMemo(() => {
+    const result: Array<{ filePath: string; hunkKey: string; hunkHeader: string; isStaged: boolean; isUntracked: boolean }> = [];
+    for (const file of files) {
+      const stagedMap = stagedHunkHeaderBySig.get(file.path);
+      const unstagedMap = unstagedHunkHeaderBySig.get(file.path);
+      for (const hunk of file.hunks) {
+        const sig = hunk.__st_hunkSig;
+        if (!sig) continue;
+        const stagedHeader = stagedMap?.get(sig);
+        const unstagedHeader = unstagedMap?.get(sig);
+        const isUntracked = !stagedHeader && !unstagedHeader;
+        result.push({
+          filePath: file.path,
+          hunkKey: hunk.__st_hunkKey,
+          hunkHeader: stagedHeader || unstagedHeader || hunk.content,
+          isStaged: Boolean(stagedHeader),
+          isUntracked,
+        });
+      }
+    }
+    return result;
+  }, [files, stagedHunkHeaderBySig, unstagedHunkHeaderBySig]);
+
+  useEffect(() => {
+    onHunkInfo?.(currentHunkIdx + 1, allHunks.length);
+  }, [currentHunkIdx, allHunks.length, onHunkInfo]);
+
+  const navigateToHunk = useCallback((direction: 'prev' | 'next') => {
+    if (allHunks.length === 0) return;
+    let newIdx: number;
+    if (direction === 'next') {
+      newIdx = currentHunkIdx >= allHunks.length - 1 ? 0 : currentHunkIdx + 1;
+    } else {
+      newIdx = currentHunkIdx <= 0 ? allHunks.length - 1 : currentHunkIdx - 1;
+    }
+    setCurrentHunkIdx(newIdx);
+    const targetKey = allHunks[newIdx]?.hunkKey;
+    setFocusedHunkKey(targetKey ?? null);
+    if (targetKey && containerRef.current) {
+      const el = containerRef.current.querySelector(`[data-hunk-key="${targetKey}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [allHunks, currentHunkIdx]);
+
+  const stageAll = useCallback(async (stage: boolean) => {
+    if (!sessionId) return;
+    for (const file of files) {
+      try {
+        await API.sessions.changeFileStage(sessionId, { filePath: file.path, stage });
+      } catch (err) {
+        console.error(`[Diff] Failed to ${stage ? 'stage' : 'unstage'} file`, { filePath: file.path, err });
+      }
+    }
+    onChanged?.();
+  }, [sessionId, files, onChanged]);
+
+  useImperativeHandle(ref, () => ({
+    navigateToHunk,
+    stageAll,
+  }), [navigateToHunk, stageAll]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const path = (entry.target as HTMLElement).dataset.diffFilePath;
+            if (path) {
+              onVisibleFileChange?.(path);
+              break;
+            }
+          }
+        }
+      },
+      { root: containerRef.current, threshold: 0.3 }
+    );
+    const fileHeaders = containerRef.current.querySelectorAll('[data-diff-file-path]');
+    fileHeaders.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [files, onVisibleFileChange]);
+
   if (!diff || diff.trim() === '' || files.length === 0) {
     return <div className={`h-full flex items-center justify-center text-sm ${className ?? ''}`}>No changes</div>;
   }
 
   return (
     <div
+      ref={containerRef}
       role="region"
       aria-label="Diff viewer"
       data-testid="diff-viewer-zed"
@@ -351,10 +451,8 @@ export const ZedDiffViewer: React.FC<{
                     const stagedHeader = stagedMap?.get(sig);
                     const unstagedHeader = unstagedMap?.get(sig);
 
-                    const hunkStatus: 'staged' | 'unstaged' | 'untracked' | 'unknown' =
-                      stagedHeader ? 'staged' : unstagedHeader ? 'unstaged' : currentScope === 'untracked' ? 'untracked' : 'unknown';
-
-                    if (hunkStatus === 'unknown') return null;
+                    const hunkStatus: 'staged' | 'unstaged' | 'untracked' =
+                      stagedHeader ? 'staged' : unstagedHeader ? 'unstaged' : 'untracked';
 
                     const stageLabel = hunkStatus === 'staged' ? 'Unstage' : 'Stage';
                     const canStageOrUnstage = Boolean(sessionId && hunkStatus !== 'unknown');
@@ -373,11 +471,12 @@ export const ZedDiffViewer: React.FC<{
                       kind === 'added' ? 'st-hunk-kind--added' : kind === 'deleted' ? 'st-hunk-kind--deleted' : 'st-hunk-kind--modified';
                     const hunkKey = (hunk as any).__st_hunkKey as string;
                     const isPending = pendingHunkKeys.has(hunkKey);
+                    const isFocused = focusedHunkKey === hunkKey;
 
                     const changeKey = getChangeKey(first);
 
                     const element = (
-                      <div data-testid="diff-hunk-controls" className={`st-diff-hunk-actions-anchor ${statusClass} ${kindClass}`}>
+                      <div data-testid="diff-hunk-controls" data-hunk-key={hunkKey} className={`st-diff-hunk-actions-anchor ${statusClass} ${kindClass} ${isFocused ? 'st-hunk-focused' : ''}`}>
                         {hunkStatus === 'staged' && (
                           <div className="st-hunk-staged-badge" aria-label="Hunk staged">
                             staged
@@ -549,12 +648,17 @@ export const ZedDiffViewer: React.FC<{
             filter: saturate(1.02) brightness(1.01);
           }
 
+          .st-diff-table .diff-hunk:has(.st-hunk-focused) {
+            outline: 1px solid color-mix(in srgb, var(--st-accent) 50%, transparent);
+            outline-offset: -1px;
+            border-radius: 4px;
+          }
+
           /* The widget row is used only as an "anchor"; it should not consume height. */
           .st-diff-table .diff-widget { height: 0; }
           .st-diff-table .diff-widget td { padding: 0; border: 0; height: 0; }
           .st-diff-table .diff-widget-content { padding: 0; border: 0; height: 0; }
 
-          /* Buttons: fixed at hunk first line (right side). */
           .st-diff-table .st-diff-hunk-actions-anchor { height: 0; }
           .st-diff-table .st-diff-hunk-actions {
             position: absolute;
@@ -597,8 +701,7 @@ export const ZedDiffViewer: React.FC<{
             text-transform: uppercase;
             letter-spacing: 0.02em;
           }
-          /* Avoid badge overlapping the hover actions bubble. */
-          .st-diff-table .diff-hunk:hover .st-hunk-staged-badge { opacity: 0; }
+
 
           .st-diff-hunk-btn {
             font-size: 12px;
@@ -626,7 +729,7 @@ export const ZedDiffViewer: React.FC<{
       </style>
     </div>
   );
-};
+});
 
 ZedDiffViewer.displayName = 'ZedDiffViewer';
 
