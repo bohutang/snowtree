@@ -384,16 +384,15 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
   return (
     <div className="flex-shrink-0 border-t st-hairline st-surface px-3 py-2">
       <div
-        className="rounded-lg transition-all duration-150"
+        className={`rounded-lg transition-all duration-150 ${isRunning ? 'opacity-60' : ''}`}
         style={{
-          border: `1px solid ${isFocused ? 'var(--st-accent)' : 'var(--st-border)'}`,
+          border: `1px solid ${isRunning ? 'var(--st-border)' : isFocused ? 'var(--st-accent)' : 'var(--st-border)'}`,
           backgroundColor: 'var(--st-editor)',
-          boxShadow: isFocused
+          boxShadow: isFocused && !isRunning
             ? '0 0 0 3px color-mix(in srgb, var(--st-accent) 20%, transparent)'
             : 'none',
         }}
       >
-        {/* Text input */}
         <textarea
           ref={textareaRef}
           value={input}
@@ -401,9 +400,9 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
           onKeyDown={handleKeyDown}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          placeholder={placeholder}
-          disabled={isProcessing}
-          className="w-full px-3 pt-3 pb-2 bg-transparent text-[13px] focus:outline-none min-h-[46px] max-h-[160px] placeholder:text-[color:var(--st-text-faint)] placeholder:opacity-70"
+          placeholder={isRunning ? 'Waiting for task to complete...' : placeholder}
+          disabled={isRunning}
+          className={`w-full px-3 pt-3 pb-2 bg-transparent text-[13px] focus:outline-none min-h-[46px] max-h-[160px] placeholder:text-[color:var(--st-text-faint)] placeholder:opacity-70 ${isRunning ? 'cursor-not-allowed' : ''}`}
           style={{
             color: 'var(--st-text)',
             caretColor: 'var(--st-accent)',
