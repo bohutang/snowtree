@@ -16,7 +16,6 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
     const uncommitted = commits.find((c) => c.id === 0) || null;
     const baseCommit = commits.find((c) => c.id === -1) || null;
     const sessionCommits = commits.filter((c) => c.id > 0);
-    const headHash = sessionCommits[0]?.after_commit_hash || null;
     const hasSessionCommits = sessionCommits.length > 0;
 
     if (commits.length === 0) {
@@ -63,7 +62,6 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
         {sessionCommits.map((commit, idx) => {
           const isSelected = selectedCommitHash === commit.after_commit_hash;
           const isLastSession = idx === sessionCommits.length - 1;
-          const isHead = headHash === commit.after_commit_hash;
           return (
             <div key={commit.after_commit_hash} className="flex">
               <div className="w-5 flex flex-col items-center pt-3">
@@ -86,7 +84,6 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
                 <CommitItem
                   commit={commit}
                   isSelected={isSelected}
-                  badge={isHead ? 'head' : undefined}
                   onClick={() => onCommitSelect(commit)}
                 />
               </div>
