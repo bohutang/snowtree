@@ -31,7 +31,7 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
 
     return (
       <div>
-        {uncommitted && hasSessionCommits && (
+        {uncommitted && (
           <div className="flex">
             <div className="w-5 flex flex-col items-center pt-3">
               <div
