@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { launchElectronApp, closeElectronApp } from './electron-helpers';
+import { clearEditor, getEditorText, setEditorText } from './editor-helpers';
 
 test.describe('Core Workflows - Electron Integration', () => {
   test('full workflow: open repo → view changes → open diff overlay', async () => {
@@ -58,23 +59,23 @@ test.describe('Core Workflows - Electron Integration', () => {
 
     await page.waitForSelector('[data-testid="main-layout"]', { timeout: 15000 });
 
-    const input = page.locator('textarea, [contenteditable="true"]').first();
+    const input = page.getByTestId('input-editor');
     if (await input.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await input.click();
-      await input.fill('test message in Electron');
+      await setEditorText(page, input, 'test message in Electron');
       await page.waitForTimeout(200);
 
-      const value = await input.inputValue().catch(() => '');
-      expect(value).toBe('test message in Electron');
+      expect((await getEditorText(input)).trim()).toBe('test message in Electron');
 
-      await input.clear();
+      await clearEditor(page, input);
     }
 
-    const toolSelector = page.locator('select, [role="combobox"]').first();
-    const selectorExists = await toolSelector.isVisible({ timeout: 3000 }).catch(() => false);
-
-    if (selectorExists) {
-      expect(selectorExists).toBe(true);
+    const agentLabel = page.getByTestId('input-agent');
+    if (await agentLabel.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const before = (await agentLabel.textContent())?.trim();
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(200);
+      const after = (await agentLabel.textContent())?.trim();
+      expect(after).not.toBe(before);
     }
 
     await closeElectronApp(app);
