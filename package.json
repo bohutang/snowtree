@@ -1,6 +1,6 @@
 {
   "name": "snowtree",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Snowtree - Multi-session AI CLI workspace manager with git worktrees",
   "author": {
@@ -65,6 +65,8 @@
     "files": [
       "packages/desktop/dist/**/*",
       "packages/ui/dist/**/*",
+      "packages/core/dist/**/*",
+      "packages/core/package.json",
       "package.json",
       "node_modules/**/*",
       "!node_modules/@anthropic-ai/claude-code/vendor/**/*.jar",
