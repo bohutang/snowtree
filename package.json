@@ -4,7 +4,8 @@
   "private": true,
   "description": "Snowtree - Multi-session AI CLI workspace manager with git worktrees",
   "author": {
-    "name": "Snowtree"
+    "name": "Snowtree",
+    "email": "overred.shuttler@gmail.com"
   },
   "license": "Apache-2.0",
   "main": "packages/desktop/dist/index.js",

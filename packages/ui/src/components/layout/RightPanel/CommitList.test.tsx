@@ -78,10 +78,10 @@ describe('CommitList', () => {
         onCommitSelect={() => {}}
       />
     );
-    expect(screen.getByTitle('BASE')).toBeInTheDocument();
+    expect(screen.getByTitle('base')).toBeInTheDocument();
   });
 
-  it('renders HEAD badge on first session commit', () => {
+  it('does not render a HEAD badge on session commits', () => {
     const commits = [sessionCommit2, sessionCommit1];
     render(
       <CommitList
@@ -91,7 +91,7 @@ describe('CommitList', () => {
         onCommitSelect={() => {}}
       />
     );
-    expect(screen.getByText('head')).toBeInTheDocument();
+    expect(screen.queryByTitle('head')).not.toBeInTheDocument();
   });
 
   it('calls onCommitSelect when commit is clicked', () => {
