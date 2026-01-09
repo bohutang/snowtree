@@ -35,7 +35,31 @@ jobs:
       - name: Build application
         run: pnpm --filter @snowtree/core build && pnpm --filter @snowtree/desktop build && pnpm --filter @snowtree/ui build
 
+      - name: Prepare release app directory (prod deps)
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf release-app
+          mkdir -p release-app/packages/desktop release-app/packages/ui
+
+          cp package.json pnpm-lock.yaml .npmrc LICENSE release-app/
+          cp -R packages/desktop/dist release-app/packages/desktop/dist
+          cp -R packages/desktop/assets release-app/packages/desktop/assets
+          cp -R packages/ui/dist release-app/packages/ui/dist
+
+          pushd release-app
+          pnpm install -P --frozen-lockfile --ignore-scripts
+
+          mkdir -p node_modules/@snowtree/core
+          cp ../packages/core/package.json node_modules/@snowtree/core/package.json
+          cp -R ../packages/core/dist node_modules/@snowtree/core/dist
+          cp -R ../packages/core/dist-cjs node_modules/@snowtree/core/dist-cjs
+          popd
+
+      - name: Rebuild native dependencies (Electron)
+        run: pnpm exec electron-builder install-app-deps --projectDir release-app
+
       - name: Publish to GitHub Releases
-        run: pnpm exec electron-builder --publish always
+        run: pnpm exec electron-builder --projectDir release-app --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -3,6 +3,7 @@ node_modules/
 
 # Build
 dist/
+dist-cjs/
 dist-electron/
 *.tsbuildinfo
 tools/dev-*/
