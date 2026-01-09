@@ -1,6 +1,6 @@
 {
   "name": "snowtree",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "private": true,
   "description": "Snowtree - Multi-session AI CLI workspace manager with git worktrees",
   "author": {
@@ -59,6 +59,7 @@
   "build": {
     "appId": "com.snowtree.snowtree",
     "productName": "snowtree",
+    "electronVersion": "37.6.0",
     "directories": {
       "output": "dist-electron"
     },
