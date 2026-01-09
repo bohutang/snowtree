@@ -1,8 +1,9 @@
 {
   "name": "snowtree",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "private": true,
   "description": "Snowtree - Multi-session AI CLI workspace manager with git worktrees",
+  "homepage": "https://github.com/bohutang/snowtree",
   "author": {
     "name": "Snowtree",
     "email": "overred.shuttler@gmail.com"
@@ -101,11 +102,13 @@
       "target": [
         {
           "target": "default",
-          "arch": "universal"
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
       ],
-      "artifactName": "${productName}-${version}-macOS-universal.${ext}",
-      "x64ArchFiles": "Contents/Resources/app.asar.unpacked/node_modules/{**/*.node,**/*.dylib,@anthropic-ai/claude-code/vendor/**/*}"
+      "artifactName": "${productName}-${version}-macOS-${arch}.${ext}"
     },
     "linux": {
       "target": [

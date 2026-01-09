@@ -66,6 +66,9 @@ export function getShellPath(): string {
 
   const isWindows = process.platform === 'win32';
   const pathSep = getPathSeparator();
+  const essentialPaths = isWindows
+    ? []
+    : ['/usr/bin', '/bin', '/usr/sbin', '/sbin', '/usr/local/bin', '/opt/homebrew/bin'];
 
   try {
     let shellPath: string;
@@ -336,7 +339,8 @@ export function getShellPath(): string {
     const combinedPaths = new Set([
       ...shellPath.split(pathSep),
       ...currentPath.split(pathSep),
-      ...additionalPaths
+      ...additionalPaths,
+      ...essentialPaths
     ]);
     
     cachedPath = Array.from(combinedPaths).filter(p => p).join(pathSep);

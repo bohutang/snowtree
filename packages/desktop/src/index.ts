@@ -190,6 +190,19 @@ async function createWindow() {
   // Each panel can register multiple event listeners
   mainWindow.webContents.setMaxListeners(100);
 
+  mainWindow.webContents.on('did-finish-load', () => {
+    try {
+      console.log('[Main] Renderer loaded:', mainWindow?.webContents.getURL());
+    } catch {
+      console.log('[Main] Renderer loaded');
+    }
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame) return;
+    console.error('[Main] Renderer failed to load:', { errorCode, errorDescription, validatedURL });
+  });
+
   // Set main window reference for services that need to emit events
 
   if (isDevelopment) {
@@ -197,26 +210,40 @@ async function createWindow() {
     await mainWindow.loadURL('http://localhost:4521');
     mainWindow.webContents.openDevTools();
   } else {
-    // In production, use app.getAppPath() to get the root directory
-    // This works correctly whether the app is packaged in ASAR or not
-    const indexPath = path.join(app.getAppPath(), 'frontend/dist/index.html');
-    console.log('Loading index.html from:', indexPath);
+    const appPath = app.getAppPath();
+    const candidates = [
+      // Current monorepo layout (packaged by electron-builder "files")
+      path.join(appPath, 'packages/ui/dist/index.html'),
+      // Legacy layout (kept for compatibility)
+      path.join(appPath, 'frontend/dist/index.html'),
+      // Edge-case fallbacks when __dirname is not under appPath as expected
+      path.join(__dirname, '../../../../packages/ui/dist/index.html'),
+      path.join(__dirname, '../../../../frontend/dist/index.html'),
+    ];
 
-    try {
-      await mainWindow.loadFile(indexPath);
-    } catch (error) {
-      console.error('Failed to load index.html:', error);
-      console.error('App path:', app.getAppPath());
-      console.error('__dirname:', __dirname);
-      
-      // Fallback: try relative path (for edge cases)
-      const fallbackPath = path.join(__dirname, '../../../../frontend/dist/index.html');
-      console.error('Trying fallback path:', fallbackPath);
+    let loaded = false;
+    for (const candidate of candidates) {
+      console.log('Loading index.html from:', candidate);
       try {
-        await mainWindow.loadFile(fallbackPath);
-      } catch (fallbackError) {
-        console.error('Fallback path also failed:', fallbackError);
+        await mainWindow.loadFile(candidate);
+        loaded = true;
+        break;
+      } catch (error) {
+        console.error('Failed to load index.html:', error);
+        console.error('App path:', appPath);
+        console.error('__dirname:', __dirname);
       }
+    }
+
+    if (!loaded) {
+      const html = `<!doctype html>
+<html><head><meta charset="utf-8"><title>snowtree</title></head>
+<body style="font-family: -apple-system, system-ui; padding: 24px;">
+<h2>snowtree failed to load UI</h2>
+<p>Could not find <code>index.html</code>. Checked:</p>
+<pre>${candidates.map((p) => `- ${p}`).join('\n')}</pre>
+</body></html>`;
+      await mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
     }
   }
 
