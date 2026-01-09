@@ -1,6 +1,6 @@
 {
   "name": "snowtree",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "private": true,
   "description": "Snowtree - Multi-session AI CLI workspace manager with git worktrees",
   "homepage": "https://github.com/bohutang/snowtree",
@@ -40,6 +40,7 @@
   "dependencies": {
     "@anthropic-ai/claude-code": "^2.0.0",
     "@homebridge/node-pty-prebuilt-multiarch": "^0.12.0",
+    "@snowtree/core": "workspace:*",
     "better-sqlite3": "^11.7.0",
     "bull": "^4.16.3",
     "electron-updater": "^6.6.2",

@@ -43,20 +43,20 @@ jobs:
           echo "RELEASE_APP_DIR=${RELEASE_APP_DIR}" >> "${GITHUB_ENV}"
 
           rm -rf "${RELEASE_APP_DIR}"
-          mkdir -p "${RELEASE_APP_DIR}/packages/desktop" "${RELEASE_APP_DIR}/packages/ui" "${RELEASE_APP_DIR}/vendor/snowtree-core"
+          mkdir -p "${RELEASE_APP_DIR}/packages/desktop" "${RELEASE_APP_DIR}/packages/ui" "${RELEASE_APP_DIR}/packages/core"
 
-          cp package.json pnpm-lock.yaml .npmrc LICENSE "${RELEASE_APP_DIR}/"
+          cp package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc LICENSE "${RELEASE_APP_DIR}/"
           cp -R packages/desktop/dist "${RELEASE_APP_DIR}/packages/desktop/dist"
           cp -R packages/desktop/assets "${RELEASE_APP_DIR}/packages/desktop/assets"
+          cp packages/desktop/package.json "${RELEASE_APP_DIR}/packages/desktop/package.json"
           cp -R packages/ui/dist "${RELEASE_APP_DIR}/packages/ui/dist"
 
-          cp "${GITHUB_WORKSPACE}/packages/core/package.json" "${RELEASE_APP_DIR}/vendor/snowtree-core/package.json"
-          cp -R "${GITHUB_WORKSPACE}/packages/core/dist" "${RELEASE_APP_DIR}/vendor/snowtree-core/dist"
-          cp -R "${GITHUB_WORKSPACE}/packages/core/dist-cjs" "${RELEASE_APP_DIR}/vendor/snowtree-core/dist-cjs"
+          cp "${GITHUB_WORKSPACE}/packages/core/package.json" "${RELEASE_APP_DIR}/packages/core/package.json"
+          cp -R "${GITHUB_WORKSPACE}/packages/core/dist" "${RELEASE_APP_DIR}/packages/core/dist"
+          cp -R "${GITHUB_WORKSPACE}/packages/core/dist-cjs" "${RELEASE_APP_DIR}/packages/core/dist-cjs"
 
           pushd "${RELEASE_APP_DIR}"
-          node -e "const fs=require('fs'); const p='package.json'; const j=JSON.parse(fs.readFileSync(p,'utf8')); j.dependencies=j.dependencies||{}; j.dependencies['@snowtree/core']='file:vendor/snowtree-core'; fs.writeFileSync(p, JSON.stringify(j,null,2)+'\\n');"
-          pnpm install -P --ignore-scripts
+          pnpm install -P --frozen-lockfile --ignore-scripts
           popd
 
       - name: Rebuild native dependencies (Electron)
@@ -66,6 +66,26 @@ jobs:
           pushd "${RELEASE_APP_DIR}"
           "${GITHUB_WORKSPACE}/node_modules/.bin/electron-builder" install-app-deps
           popd
+
+      - name: Build artifacts (no publish)
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${GITHUB_WORKSPACE}/node_modules/.bin/electron-builder" --projectDir "${RELEASE_APP_DIR}" --publish never
+
+      - name: Verify packaged app contains core (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="$(ls -1 "${RELEASE_APP_DIR}/dist-electron/"*macOS-arm64.zip | head -n 1)"
+          TMP_DIR="${RUNNER_TEMP}/verify-app"
+          rm -rf "${TMP_DIR}"
+          mkdir -p "${TMP_DIR}"
+          unzip -q "${ZIP}" -d "${TMP_DIR}"
+          APP_ASAR="$(find "${TMP_DIR}" -path '*snowtree.app/Contents/Resources/app.asar' | head -n 1)"
+          echo "Verifying asar: ${APP_ASAR}"
+          "${GITHUB_WORKSPACE}/node_modules/.bin/asar" list "${APP_ASAR}" | grep -q "node_modules/@snowtree/core/dist-cjs/types/models.js"
 
       - name: Publish to GitHub Releases
         shell: bash

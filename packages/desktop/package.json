@@ -4,6 +4,9 @@
   "description": "Snowtree desktop application - Electron main process",
   "main": "dist/index.js",
   "type": "commonjs",
+  "dependencies": {
+    "@snowtree/core": "workspace:*"
+  },
   "scripts": {
     "dev": "tsc -w",
     "build": "rimraf dist && tsc && npm run copy:assets",

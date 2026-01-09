@@ -14,6 +14,9 @@ importers:
       '@homebridge/node-pty-prebuilt-multiarch':
         specifier: ^0.12.0
         version: 0.12.0
+      '@snowtree/core':
+        specifier: workspace:*
+        version: link:packages/core
       better-sqlite3:
         specifier: ^11.7.0
         version: 11.10.0
@@ -65,6 +68,10 @@ importers:
         version: 5.8.3
 
   packages/desktop:
+    dependencies:
+      '@snowtree/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       '@electron/rebuild':
         specifier: ^4.0.1
