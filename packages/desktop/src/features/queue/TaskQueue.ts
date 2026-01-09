@@ -247,14 +247,59 @@ export class TaskQueue {
         sessionManager.updateSessionStatus(session.id, 'initializing', 'Creating worktree…');
         sessionManager.emitSessionCreated(session);
 
-        const { worktreePath, baseCommit, baseBranch: actualBaseBranch } = await worktreeManager.createWorktree(
-          targetProject.path,
-          worktreeName,
-          undefined,
-          baseBranch,
-          targetProject.worktree_folder || undefined,
-          sessionId
-        );
+        // Try to create worktree, retry with new name if branch already exists
+        let worktreePath: string;
+        let baseCommit: string;
+        let actualBaseBranch: string;
+        let retryCount = 0;
+        const maxRetries = 5;
+
+        while (retryCount < maxRetries) {
+          try {
+            const result = await worktreeManager.createWorktree(
+              targetProject.path,
+              worktreeName,
+              undefined,
+              baseBranch,
+              targetProject.worktree_folder || undefined,
+              sessionId
+            );
+            worktreePath = result.worktreePath;
+            baseCommit = result.baseCommit;
+            actualBaseBranch = result.baseBranch;
+            break; // Success, exit retry loop
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+
+            // Check if this is a "branch already exists" error
+            if (errorMessage.includes('already exists') && retryCount < maxRetries - 1) {
+              console.log(`[TaskQueue] Worktree name '${worktreeName}' already exists, generating new name (retry ${retryCount + 1}/${maxRetries - 1})`);
+
+              // Generate a new name
+              const newSessionName = this.options.worktreeNameGenerator.generateSessionName();
+              const newWorktreeName = newSessionName.toLowerCase();
+
+              // Ensure uniqueness for both names
+              const { sessionName: uniqueSessionName, worktreeName: uniqueWorktreeName } =
+                await this.ensureUniqueNames(newSessionName, newWorktreeName, targetProject, index);
+              sessionName = uniqueSessionName;
+              worktreeName = uniqueWorktreeName;
+
+              // Update session with new name
+              const newPlannedWorktreePath = join(plannedBaseDir, worktreeName);
+              sessionManager.updateSession(session.id, {
+                name: sessionName,
+                worktreePath: newPlannedWorktreePath,
+                worktreeName: worktreeName
+              });
+
+              retryCount++;
+            } else {
+              // Not a "branch already exists" error, or max retries reached
+              throw error;
+            }
+          }
+        }
 
         // Persist canonical worktree+base info once worktree is ready.
         sessionManager.updateSession(session.id, {

@@ -37,6 +37,7 @@ export interface Session {
 }
 
 export interface SessionUpdate {
+  name?: string;
   status?: Session['status'];
   statusMessage?: string;
   pid?: number;

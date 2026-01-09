@@ -685,6 +685,10 @@ export class SessionManager extends EventEmitter {
 
     const dbUpdate: UpdateSessionData = {};
 
+    if (update.name !== undefined) {
+      dbUpdate.name = update.name;
+    }
+
     if (update.status !== undefined) {
       dbUpdate.status = this.mapSessionStatusToDbStatus(update.status);
     }
