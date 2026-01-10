@@ -6,17 +6,51 @@ on:
       - 'v*'
 
 jobs:
-  release:
-    name: Release ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-
+  create_release:
+    name: Create draft release
+    runs-on: ubuntu-latest
     permissions:
       contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      - name: Create draft GitHub release (with notes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          if [ -z "${TAG}" ]; then
+            echo "Missing GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists; leaving as-is"
+            exit 0
+          fi
+
+          PREV="$(git tag --sort=-version:refname | grep -E '^v' | grep -v "^${TAG}$" | head -n 1 || true)"
+          echo "Creating draft release: ${TAG} (previous: ${PREV:-<none>})"
+
+          if [ -n "${PREV}" ]; then
+            gh release create "${TAG}" --draft --generate-notes --notes-start-tag "${PREV}"
+          else
+            gh release create "${TAG}" --draft --generate-notes
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Build & upload assets (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: create_release
+    permissions:
+      contents: write
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest]
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -92,5 +126,56 @@ jobs:
         run: |
           set -euo pipefail
           "${GITHUB_WORKSPACE}/node_modules/.bin/electron-builder" --projectDir "${RELEASE_APP_DIR}" --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  finalize_release:
+    name: Publish release notes
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update release notes and publish (undraft)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          if [ -z "${TAG}" ]; then
+            echo "Missing GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+
+          PREV="$(git tag --sort=-version:refname | grep -E '^v' | grep -v "^${TAG}$" | head -n 1 || true)"
+          echo "tag=${TAG}"
+          echo "previous=${PREV:-<none>}"
+
+          if [ -n "${PREV}" ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f "tag_name=${TAG}" \
+              -f "previous_tag_name=${PREV}" \
+              > release-notes.json
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f "tag_name=${TAG}" \
+              > release-notes.json
+          fi
+
+          python3 - <<'PY'
+          import json
+          with open("release-notes.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+          body = data.get("body") or ""
+          with open("release-notes.md", "w", encoding="utf-8") as f:
+              f.write(body)
+              if not body.endswith("\n"):
+                  f.write("\n")
+          PY
+
+          gh release edit "${TAG}" --draft=false --latest --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

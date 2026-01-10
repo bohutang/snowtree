@@ -118,12 +118,16 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
     }, []);
 
     const handleOpenReleases = useCallback(async () => {
+      const tag = appVersion ? `v${appVersion.replace(/^v/, '')}` : '';
+      const url = tag
+        ? `https://github.com/bohutang/snowtree/releases/tag/${tag}`
+        : 'https://github.com/bohutang/snowtree/releases';
       try {
-        await window.electronAPI?.invoke?.('shell:openExternal', 'https://github.com/bohutang/snowtree/releases');
+        await window.electronAPI?.invoke?.('shell:openExternal', url);
       } catch {
         // ignore
       }
-    }, []);
+    }, [appVersion]);
 
     const isWorkingTreeSelected = selection?.kind === 'working';
     const selectedCommitHash =
