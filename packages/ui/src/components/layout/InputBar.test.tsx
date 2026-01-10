@@ -169,12 +169,11 @@ beforeEach(() => {
 
 const mockSession: Session = {
   id: 'test-session',
-  status: 'idle',
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-  project_id: 1,
-  worktree_path: '/test/path',
-  branch: 'test-branch',
+  name: 'test-session',
+  status: 'waiting',
+  createdAt: new Date().toISOString(),
+  worktreePath: '/test/path',
+  toolType: 'claude',
 };
 
 describe('InputBar - Cursor Position Tests', () => {

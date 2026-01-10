@@ -3,7 +3,7 @@ import { GitDiffManager } from '../DiffManager';
 import type { GitExecutor } from '../../../executors/git';
 
 describe('GitDiffManager', () => {
-  it('uses --unified=0 for staged working tree diff', async () => {
+  it('uses --unified=2 for staged working tree diff', async () => {
     const mockGitExecutor: GitExecutor = {
       run: vi.fn(async ({ argv }) => {
         if (argv[1] === 'rev-parse') {
@@ -34,10 +34,10 @@ describe('GitDiffManager', () => {
       .mock.calls.find((c) => (c[0] as any).argv?.[1] === 'diff' && (c[0] as any).argv?.includes('--cached') && !(c[0] as any).argv?.includes('--name-only') && !(c[0] as any).argv?.includes('--shortstat'));
 
     expect(diffCall).toBeTruthy();
-    expect((diffCall?.[0] as any).argv).toEqual(expect.arrayContaining(['--unified=0']));
+    expect((diffCall?.[0] as any).argv).toEqual(expect.arrayContaining(['--unified=2']));
   });
 
-  it('uses --unified=0 for commit diff (git show)', async () => {
+  it('uses --unified=2 for commit diff (git show)', async () => {
     const mockGitExecutor: GitExecutor = {
       run: vi.fn(async ({ argv }) => {
         if (argv[1] === 'show' && argv.includes('--numstat')) {
@@ -61,6 +61,6 @@ describe('GitDiffManager', () => {
       .mock.calls.find((c) => (c[0] as any).argv?.[1] === 'show' && !(c[0] as any).argv?.includes('--name-only') && !(c[0] as any).argv?.includes('--numstat'));
 
     expect(showCall).toBeTruthy();
-    expect((showCall?.[0] as any).argv).toEqual(expect.arrayContaining(['--unified=0']));
+    expect((showCall?.[0] as any).argv).toEqual(expect.arrayContaining(['--unified=2']));
   });
 });

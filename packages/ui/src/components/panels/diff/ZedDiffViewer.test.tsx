@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { ZedDiffViewer } from './ZedDiffViewer';
 import { API } from '../../../utils/api';
 
@@ -43,6 +44,16 @@ index 1234567..abcdefg 100644
 +y`;
 
 describe('ZedDiffViewer', () => {
+  async function hoverFirstHunk(container: HTMLElement) {
+    const codeCell = container.querySelector('td.diff-code') as HTMLElement | null;
+    expect(codeCell).toBeTruthy();
+    fireEvent.mouseMove(codeCell!);
+    await waitFor(() => {
+      const controls = screen.getAllByTestId('diff-hunk-controls')[0] as HTMLElement;
+      expect(controls.classList.contains('st-hunk-hovered')).toBe(true);
+    });
+  }
+
   it('renders viewer', () => {
     render(<ZedDiffViewer diff={SAMPLE_DIFF_TWO_HUNKS} />);
     expect(screen.getByTestId('diff-viewer-zed')).toBeInTheDocument();
@@ -57,7 +68,7 @@ index 1234567..abcdefg 100644
 -old
 +new`;
 
-    const { container } = render(<ZedDiffViewer diff={diff} fileSources={{ 'a.txt': 'one\nold\nthree' }} />);
+    const { container } = render(<ZedDiffViewer diff={diff} fileSources={{ 'a.txt': 'one\nold\nthree' }} expandFileContext />);
     // one (context) + old (delete) + new (insert) + three (context)
     expect(container.querySelectorAll('tr.diff-line')).toHaveLength(4);
   });
@@ -72,13 +83,13 @@ index 0000000..abcdefg
 +first
 +second`;
 
-    const { container } = render(<ZedDiffViewer diff={diff} fileSources={{ 'new.txt': 'first\nsecond' }} />);
+    const { container } = render(<ZedDiffViewer diff={diff} fileSources={{ 'new.txt': 'first\nsecond' }} expandFileContext />);
     expect(container.querySelectorAll('tr.diff-line')).toHaveLength(2);
   });
 
   it('stages a hunk when scope is unstaged', async () => {
     (API.sessions.stageHunk as any).mockResolvedValue({ success: true, data: { success: true } });
-    render(
+    const { container } = render(
       <ZedDiffViewer
         diff={SAMPLE_DIFF_TWO_HUNKS}
         sessionId="s1"
@@ -87,10 +98,10 @@ index 0000000..abcdefg
       />
     );
 
+    await hoverFirstHunk(container);
     const stage = screen.getAllByTestId('diff-hunk-stage')[0] as HTMLButtonElement;
-    await act(async () => {
-      fireEvent.click(stage);
-    });
+    const user = userEvent.setup();
+    await user.click(stage);
 
     await waitFor(() => {
       expect(API.sessions.stageHunk).toHaveBeenCalledWith('s1', expect.objectContaining({ isStaging: true }));
@@ -99,7 +110,7 @@ index 0000000..abcdefg
 
   it('unstages a hunk when scope is staged', async () => {
     (API.sessions.stageHunk as any).mockResolvedValue({ success: true, data: { success: true } });
-    render(
+    const { container } = render(
       <ZedDiffViewer
         diff={SAMPLE_DIFF_TWO_HUNKS}
         sessionId="s1"
@@ -108,10 +119,10 @@ index 0000000..abcdefg
       />
     );
 
+    await hoverFirstHunk(container);
     const stage = screen.getAllByTestId('diff-hunk-stage')[0] as HTMLButtonElement;
-    await act(async () => {
-      fireEvent.click(stage);
-    });
+    const user = userEvent.setup();
+    await user.click(stage);
 
     await waitFor(() => {
       expect(API.sessions.stageHunk).toHaveBeenCalledWith('s1', expect.objectContaining({ isStaging: false }));
@@ -120,7 +131,7 @@ index 0000000..abcdefg
 
   it('restores a hunk using the current scope', async () => {
     (API.sessions.restoreHunk as any).mockResolvedValue({ success: true, data: { success: true } });
-    render(
+    const { container } = render(
       <ZedDiffViewer
         diff={SAMPLE_DIFF_TWO_HUNKS}
         sessionId="s1"
@@ -129,10 +140,10 @@ index 0000000..abcdefg
       />
     );
 
+    await hoverFirstHunk(container);
     const restore = screen.getAllByTestId('diff-hunk-restore')[0] as HTMLButtonElement;
-    await act(async () => {
-      fireEvent.click(restore);
-    });
+    const user = userEvent.setup();
+    await user.click(restore);
 
     await waitFor(() => {
       expect(API.sessions.restoreHunk).toHaveBeenCalledWith('s1', expect.objectContaining({ scope: 'unstaged' }));
@@ -149,14 +160,59 @@ index 0000000..abcdefg
 @@ -0,0 +1,1 @@
 +hello`;
 
-    render(<ZedDiffViewer diff={diff} sessionId="s1" currentScope="untracked" />);
+    const { container } = render(<ZedDiffViewer diff={diff} sessionId="s1" currentScope="untracked" />);
 
+    await hoverFirstHunk(container);
     const stage = screen.getAllByTestId('diff-hunk-stage')[0] as HTMLButtonElement;
-    await act(async () => {
-      fireEvent.click(stage);
-    });
+    const user = userEvent.setup();
+    await user.click(stage);
     await waitFor(() => {
       expect(API.sessions.changeFileStage).toHaveBeenCalledWith('s1', { filePath: 'new.txt', stage: true });
+    });
+  });
+
+  it('matches staged/unstaged hunks by signature + location (duplicate signatures)', async () => {
+    (API.sessions.stageHunk as any).mockResolvedValue({ success: true, data: { success: true } });
+    const diff = `diff --git a/a.txt b/a.txt
+index 1234567..abcdefg 100644
+--- a/a.txt
++++ b/a.txt
+@@ -1,1 +1,2 @@
+ x
++same
+@@ -10,1 +11,2 @@
+ y
++same`;
+
+    const { container } = render(<ZedDiffViewer diff={diff} sessionId="s1" currentScope="unstaged" unstagedDiff={diff} />);
+    const user = userEvent.setup();
+    await hoverFirstHunk(container);
+    const stageButtons = screen.getAllByTestId('diff-hunk-stage') as HTMLButtonElement[];
+    await user.click(stageButtons[0]!);
+
+    await waitFor(() => {
+      expect(API.sessions.stageHunk).toHaveBeenCalledWith(
+        's1',
+        expect.objectContaining({
+          filePath: 'a.txt',
+          isStaging: true,
+          hunkHeader: expect.stringContaining('@@ -1,1 +1,2 @@'),
+        })
+      );
+    });
+  });
+
+  it('marks hovered hunk to keep controls stable', async () => {
+    const { container } = render(
+      <ZedDiffViewer diff={SAMPLE_DIFF_TWO_HUNKS} sessionId="s1" currentScope="unstaged" unstagedDiff={SAMPLE_DIFF_TWO_HUNKS} />
+    );
+    const codeCell = container.querySelector('td.diff-code') as HTMLElement | null;
+    expect(codeCell).toBeTruthy();
+    fireEvent.mouseMove(codeCell!);
+
+    await waitFor(() => {
+      const controls = screen.getAllByTestId('diff-hunk-controls')[0] as HTMLElement;
+      expect(controls.classList.contains('st-hunk-hovered')).toBe(true);
     });
   });
 
@@ -202,7 +258,7 @@ index 0000000..abcdefg
     expect(headers[1]).toBe('b.txt');
   });
 
-  it('renders a persistent frame style for staged hunks', () => {
+  it('renders a distinct gutter style for staged hunks', () => {
     const { container } = render(
       <ZedDiffViewer
         diff={SAMPLE_DIFF_TWO_HUNKS}
@@ -213,7 +269,16 @@ index 0000000..abcdefg
     );
     const css = container.querySelector('style')?.textContent || '';
     expect(css).toContain('st-hunk-status--staged');
-    expect(css).toContain('Zed-like: staged_hollow -> staged has border');
+    expect(css).toContain('td.diff-gutter:first-of-type::before');
+    expect(css).toContain('opacity: 0.75');
+  });
+
+  it('keeps unified gutters sticky for horizontal scroll', () => {
+    const { container } = render(<ZedDiffViewer diff={SAMPLE_DIFF_TWO_HUNKS} />);
+    const css = container.querySelector('style')?.textContent || '';
+    expect(css).toContain('.st-diff-table.diff-unified tr.diff-line > td.diff-gutter:nth-child(1)');
+    expect(css).toContain('position: sticky');
+    expect(css).toContain('left: var(--st-diff-gutter-width)');
   });
 
   it('shows a persistent staged badge for staged hunks', () => {

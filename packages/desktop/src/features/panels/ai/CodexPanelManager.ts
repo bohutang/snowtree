@@ -59,6 +59,9 @@ export class CodexPanelManager extends AbstractAIPanelManager {
     let sandbox: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined;
     if (config.sandboxMode) {
       sandbox = config.sandboxMode as typeof sandbox;
+    } else {
+      // Codex defaults can be restrictive (often read-only); default to full access so the agent can edit files.
+      sandbox = 'danger-full-access';
     }
 
     // Map approval policy
@@ -67,6 +70,9 @@ export class CodexPanelManager extends AbstractAIPanelManager {
       askForApproval = 'never';
     } else if (config.approvalPolicy === 'manual') {
       askForApproval = 'untrusted';
+    } else {
+      // Default to no-approval mode; Snowtree already provides review/staging safety.
+      askForApproval = 'never';
     }
 
     return {
@@ -302,13 +308,13 @@ export class CodexPanelManager extends AbstractAIPanelManager {
       lastPrompt: config?.prompt,
       model: config?.model || DEFAULT_CODEX_MODEL,
       modelProvider: config?.modelProvider || 'openai',
-      approvalPolicy: config?.approvalPolicy || 'manual',
-      sandboxMode: config?.sandboxMode || 'workspace-write',
+      approvalPolicy: config?.approvalPolicy || 'auto',
+      sandboxMode: config?.sandboxMode || 'danger-full-access',
       webSearch: config?.webSearch ?? false,
       codexConfig: {
         model: config?.model || DEFAULT_CODEX_MODEL,
         thinkingLevel: config?.thinkingLevel || 'medium',
-        sandboxMode: config?.sandboxMode || 'workspace-write',
+        sandboxMode: config?.sandboxMode || 'danger-full-access',
         webSearch: config?.webSearch ?? false
       }
     };

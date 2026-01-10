@@ -40,6 +40,8 @@ export class CodexExecutor extends AbstractExecutor {
   private conversationIdByPanel = new Map<string, { conversationId: string; rolloutPath?: string }>();
   private rpcOpById = new Map<string | number, { panelId: string; sessionId: string; startMs: number; kind: 'cli.command' }>();
   private pendingUserTurnRpcIdsByPanel = new Map<string, string[]>();
+  private turnIdleTimerByPanel = new Map<string, NodeJS.Timeout>();
+  private lastTurnActivityMsByPanel = new Map<string, number>();
   private pendingRequests: Map<string | number, {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
@@ -155,14 +157,27 @@ export class CodexExecutor extends AbstractExecutor {
       pending.reject(new Error('Process terminated'));
     }
     this.pendingRequests.clear();
-    for (const [id, op] of this.rpcOpById) {
-      if (op.sessionId === sessionId) this.rpcOpById.delete(id);
+
+    // Finalize any outstanding RPC ops (otherwise the timeline will keep showing "running").
+    // IMPORTANT: do this before clearing per-panel turn queues, since those rely on `rpcOpById`.
+    for (const [id, op] of Array.from(this.rpcOpById.entries())) {
+      if (op.sessionId !== sessionId) continue;
+      const termination = this.getTerminationReason(op.panelId) || 'terminated';
+      this.finishRpcTimeline(id, 'failed', {
+        termination,
+      });
     }
+
     for (const [panelId, proc] of this.processes) {
       if (proc.sessionId === sessionId) {
+        this.clearTurnIdleTimer(panelId);
+        this.lastTurnActivityMsByPanel.delete(panelId);
+        const termination = this.getTerminationReason(panelId) || 'terminated';
         const pending = this.pendingUserTurnRpcIdsByPanel.get(panelId);
         if (pending?.length) {
-          for (const rpcId of pending) this.finishRpcTimeline(rpcId, 'failed');
+          for (const rpcId of pending) this.finishRpcTimeline(rpcId, 'failed', {
+            termination,
+          });
         }
         this.pendingUserTurnRpcIdsByPanel.delete(panelId);
         this.conversationIdByPanel.delete(panelId);
@@ -303,11 +318,18 @@ export class CodexExecutor extends AbstractExecutor {
   ): void {
     const { method, params } = notification;
 
+    // Codex can keep streaming deltas (reasoning/assistant text) after commands finish.
+    // Treat non-terminal notifications as activity so the UI stays in "Running".
+    if (method !== 'turn/completed' && method !== 'error') {
+      this.noteTurnActivity(panelId, sessionId);
+    }
+
     // Keep the per-prompt RPC entry Running until the turn completes.
     if (method === 'turn/completed') {
       this.finishNextPendingUserTurn(panelId, 'finished');
       if (!this.pendingUserTurnRpcIdsByPanel.get(panelId)?.length) {
-        this.sessionManager.updateSessionStatus(sessionId, 'waiting');
+        // Debounce to avoid flipping to Waiting while final deltas are still flushing.
+        this.scheduleTurnIdle(panelId, sessionId);
       }
     } else if (method === 'error') {
       const willRetry = typeof (params as { willRetry?: unknown; will_retry?: unknown })?.willRetry === 'boolean'
@@ -394,7 +416,7 @@ export class CodexExecutor extends AbstractExecutor {
     });
   }
 
-  private finishRpcTimeline(id: string | number, status: 'finished' | 'failed'): void {
+  private finishRpcTimeline(id: string | number, status: 'finished' | 'failed', meta?: Record<string, unknown>): void {
     const op = this.rpcOpById.get(id);
     if (!op) return;
     this.rpcOpById.delete(id);
@@ -406,7 +428,7 @@ export class CodexExecutor extends AbstractExecutor {
       status,
       duration_ms: durationMs,
       tool: this.getToolType(),
-      meta: { operationId: `rpc:${String(id)}`, rpcId: String(id) },
+      meta: { operationId: `rpc:${String(id)}`, rpcId: String(id), ...(meta || {}) },
     });
   }
 
@@ -461,6 +483,39 @@ export class CodexExecutor extends AbstractExecutor {
     if (!rpcId) return;
     if (q.length === 0) this.pendingUserTurnRpcIdsByPanel.delete(panelId);
     this.finishRpcTimeline(rpcId, status);
+  }
+
+  private clearTurnIdleTimer(panelId: string): void {
+    const timer = this.turnIdleTimerByPanel.get(panelId);
+    if (timer) clearTimeout(timer);
+    this.turnIdleTimerByPanel.delete(panelId);
+  }
+
+  private noteTurnActivity(panelId: string, sessionId: string): void {
+    this.lastTurnActivityMsByPanel.set(panelId, Date.now());
+    this.clearTurnIdleTimer(panelId);
+
+    // Align UI "Running" with Codex streaming output.
+    const session = this.sessionManager.getSession(sessionId);
+    if (session && session.status !== 'running' && session.status !== 'initializing' && session.status !== 'stopped') {
+      this.sessionManager.updateSessionStatus(sessionId, 'running');
+    }
+  }
+
+  private scheduleTurnIdle(panelId: string, sessionId: string): void {
+    this.clearTurnIdleTimer(panelId);
+    const scheduledAt = Date.now();
+    this.turnIdleTimerByPanel.set(panelId, setTimeout(() => {
+      this.turnIdleTimerByPanel.delete(panelId);
+
+      const lastActivity = this.lastTurnActivityMsByPanel.get(panelId) || 0;
+      if (lastActivity > scheduledAt) return;
+      if (this.pendingUserTurnRpcIdsByPanel.get(panelId)?.length) return;
+
+      const session = this.sessionManager.getSession(sessionId);
+      if (!session || session.status === 'stopped') return;
+      this.sessionManager.updateSessionStatus(sessionId, 'waiting');
+    }, 250));
   }
 
   // ============================================================================
@@ -526,14 +581,16 @@ export class CodexExecutor extends AbstractExecutor {
     }
 
     await new Promise<void>((resolve, reject) => {
-      this.pendingRequests.set(rpcId, { resolve: resolve as unknown as (value: unknown) => void, reject, label: 'sendUserMessage' });
+      // `sendUserMessage` response is just an ack; the actual turn completion is tracked via `turn/completed`.
+      // In practice the ack can arrive late (or be dropped). Treat an ack timeout as non-fatal to avoid
+      // spurious "Request sendUserMessage timed out" errors while the agent may still be running.
+      this.pendingRequests.set(rpcId, { resolve: (() => resolve()) as unknown as (value: unknown) => void, reject, label: 'sendUserMessage' });
       this.sendRpcMessage(panelId, request);
       setTimeout(() => {
         if (this.pendingRequests.has(rpcId)) {
           this.pendingRequests.delete(rpcId);
-          this.dropPendingUserTurn(panelId, rpcId);
-          this.finishRpcTimeline(rpcId, 'failed');
-          reject(new Error('Request sendUserMessage timed out'));
+          // Keep the pending turn; `turn/completed` will finalize the timeline entry.
+          resolve();
         }
       }, 30000);
     });

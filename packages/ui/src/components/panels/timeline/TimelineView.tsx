@@ -100,7 +100,11 @@ const getCommandKind = (eventKind: string): 'cli' | 'git' | 'worktree' => {
 };
 
 // Build timeline items - groups everything between user messages into agent responses
-const buildItems = (events: TimelineEvent[], sessionToolType?: Session['toolType']): TimelineItem[] => {
+const buildItems = (
+  events: TimelineEvent[],
+  sessionToolType?: Session['toolType'],
+  sessionStatus?: Session['status']
+): TimelineItem[] => {
   type FlatItem =
     | { type: 'user'; seq: number; timestamp: string; content: string }
     | { type: 'assistant'; seq: number; timestamp: string; content: string }
@@ -280,6 +284,7 @@ const buildItems = (events: TimelineEvent[], sessionToolType?: Session['toolType
     let endTimestamp = current.timestamp;
     let hasRunning = false;
     let hasError = false;
+    let hasInterrupted = false;
 
     while (cursor < flat.length && flat[cursor].type !== 'user' && flat[cursor].type !== 'thinking' && flat[cursor].type !== 'toolCall' && flat[cursor].type !== 'userQuestion') {
       const item = flat[cursor];
@@ -288,6 +293,10 @@ const buildItems = (events: TimelineEvent[], sessionToolType?: Session['toolType
       if (item.type === 'assistant') {
         messages.push({ content: item.content, timestamp: item.timestamp });
       } else if (item.type === 'command') {
+        const meta = item.meta || {};
+        const termination = typeof meta.termination === 'string' ? meta.termination : undefined;
+        if (termination === 'interrupted') hasInterrupted = true;
+
         commands.push({
           kind: item.kind,
           command: item.command,
@@ -295,11 +304,13 @@ const buildItems = (events: TimelineEvent[], sessionToolType?: Session['toolType
           durationMs: item.durationMs,
           exitCode: item.exitCode,
           tool: item.tool,
-          meta: item.meta,
+          meta,
           cwd: item.cwd
         });
         if (item.status === 'started') hasRunning = true;
-        if (item.status === 'failed' || (typeof item.exitCode === 'number' && item.exitCode !== 0)) hasError = true;
+        if (item.status === 'failed' || (typeof item.exitCode === 'number' && item.exitCode !== 0)) {
+          if (termination !== 'interrupted') hasError = true;
+        }
       }
       cursor++;
     }
@@ -308,6 +319,7 @@ const buildItems = (events: TimelineEvent[], sessionToolType?: Session['toolType
     if (messages.length > 0 || commands.length > 0) {
       const status = (() => {
         if (hasRunning) return 'running';
+        if (hasInterrupted) return 'interrupted';
         if (hasError) return 'error';
         return 'done';
       })();
@@ -320,6 +332,33 @@ const buildItems = (events: TimelineEvent[], sessionToolType?: Session['toolType
         messages,
         commands
       });
+    }
+  }
+
+  // If the session is currently running, reflect that in the latest turn's agent response
+  // even if it contains only completed commands and streaming continues as standalone items
+  // (e.g. Codex incremental reasoning updates).
+  if (sessionStatus === 'running' || sessionStatus === 'initializing') {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (item.type === 'agentResponse') {
+        if (item.status !== 'error') {
+          items[i] = { ...item, status: 'running' };
+        }
+        break;
+      }
+      if (item.type === 'userMessage') break;
+    }
+  }
+
+  if (sessionStatus === 'stopped') {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (item.type === 'agentResponse') {
+        if (item.status !== 'done') items[i] = { ...item, status: 'interrupted' };
+        break;
+      }
+      if (item.type === 'userMessage') break;
     }
   }
 
@@ -344,19 +383,7 @@ interface ImageAttachment {
   dataUrl: string;
 }
 
-const ImageTag: React.FC<{ index: number }> = ({ index }) => (
-  <span
-    className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-mono mx-0.5"
-    style={{
-      backgroundColor: 'color-mix(in srgb, var(--st-accent) 15%, transparent)',
-      color: 'var(--st-accent)',
-    }}
-  >
-    [img{index}]
-  </span>
-);
-
-const UserMessage: React.FC<{ content: string; timestamp: string; images?: ImageAttachment[] }> = ({ content, timestamp, images }) => (
+const UserMessage: React.FC<{ content: string; timestamp: string; images?: ImageAttachment[] }> = ({ content, timestamp }) => (
   <div className="user-message-container">
     <div className="user-message-content">
       <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: colors.text.primary }}>
@@ -398,8 +425,17 @@ const AgentResponse: React.FC<{
 
   const totalDuration = commands.reduce((sum, c) => sum + (c.durationMs || 0), 0);
   const runningCount = commands.filter(c => c.status === 'started').length;
-  const failedCount = commands.filter(c => c.status === 'failed' || (typeof c.exitCode === 'number' && c.exitCode !== 0)).length;
-  const doneCount = commands.length - runningCount - failedCount;
+  const interruptedCount = commands.filter(c => {
+    const meta = c.meta || {};
+    return typeof meta.termination === 'string' && meta.termination === 'interrupted';
+  }).length;
+  const failedCount = commands.filter(c => {
+    const meta = c.meta || {};
+    const interrupted = typeof meta.termination === 'string' && meta.termination === 'interrupted';
+    if (interrupted) return false;
+    return c.status === 'failed' || (typeof c.exitCode === 'number' && c.exitCode !== 0);
+  }).length;
+  const doneCount = commands.length - runningCount - failedCount - interruptedCount;
 
   return (
     <div className="agent-response-container">
@@ -445,6 +481,12 @@ const AgentResponse: React.FC<{
                   <span> running</span>
                 </span>
               )}
+              {interruptedCount > 0 && (
+                <span className="commands-stat-item status-interrupted">
+                  <span className="commands-stat-value">{interruptedCount}</span>
+                  <span> interrupted</span>
+                </span>
+              )}
               {failedCount > 0 && (
                 <span className="commands-stat-item status-error">
                   <span className="commands-stat-value">{failedCount}</span>
@@ -472,7 +514,9 @@ const AgentResponse: React.FC<{
                 const showStdout = c.kind === 'cli' && stdout.length > 0;
                 const showStderr = c.kind === 'cli' && stderr.length > 0;
                 const cmdStatus = c.status;
-                const isFailed = cmdStatus === 'failed' || (typeof c.exitCode === 'number' && c.exitCode !== 0);
+                const metaTermination = typeof meta.termination === 'string' ? meta.termination : undefined;
+                const isInterrupted = metaTermination === 'interrupted';
+                const isFailed = !isInterrupted && (cmdStatus === 'failed' || (typeof c.exitCode === 'number' && c.exitCode !== 0));
 
                 return (
                   <div key={key}>
@@ -480,6 +524,8 @@ const AgentResponse: React.FC<{
                       <span className="command-status-icon">
                         {cmdStatus === 'started' ? (
                           <Loader2 className="status-running" style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />
+                        ) : isInterrupted ? (
+                          <XCircle className="status-interrupted" style={{ width: 14, height: 14 }} />
                         ) : isFailed ? (
                           <XCircle className="status-error" style={{ width: 14, height: 14 }} />
                         ) : (
@@ -686,7 +732,7 @@ export const TimelineView: React.FC<{
     setHasNew(true);
   }, [events.length, pendingMessage]);
 
-  const items = useMemo(() => buildItems(events, session.toolType), [events, session.toolType]);
+  const items = useMemo(() => buildItems(events, session.toolType, session.status), [events, session.toolType, session.status]);
 
   // Group items by time for separators
   const itemsWithSeparators = useMemo(() => {

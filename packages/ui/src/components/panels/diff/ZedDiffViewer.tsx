@@ -2,7 +2,6 @@ import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo
 import { Diff, Hunk, getChangeKey, parseDiff, textLinesToHunk, type ChangeData, type DiffType, type HunkData } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
 import { API } from '../../../utils/api';
-import { useVisibleHunkTracker } from './useVisibleHunkTracker';
 
 export interface ZedDiffViewerHandle {
   navigateToHunk: (direction: 'prev' | 'next') => void;
@@ -23,6 +22,13 @@ type FileModel = {
 };
 
 type HunkKind = 'added' | 'deleted' | 'modified';
+
+type HunkHeaderEntry = {
+  sig: string;
+  oldStart: number;
+  newStart: number;
+  header: string;
+};
 
 function toFilePath(raw: { newPath: string; oldPath: string }) {
   const newPath = (raw.newPath || '').trim();
@@ -117,6 +123,27 @@ function expandToFullFile(hunks: HunkData[], source: string): HunkData[] {
   return output;
 }
 
+function findMatchingHeader(entries: HunkHeaderEntry[] | undefined, sig: string, oldStart: number, newStart: number): string | null {
+  if (!entries || entries.length === 0) return null;
+  const candidates = entries.filter((e) => e.sig === sig);
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0]!.header;
+
+  const exact = candidates.find((e) => e.oldStart === oldStart && e.newStart === newStart);
+  if (exact) return exact.header;
+
+  let best = candidates[0]!;
+  let bestScore = Math.abs(best.oldStart - oldStart) + Math.abs(best.newStart - newStart);
+  for (const c of candidates) {
+    const score = Math.abs(c.oldStart - oldStart) + Math.abs(c.newStart - newStart);
+    if (score < bestScore) {
+      best = c;
+      bestScore = score;
+    }
+  }
+  return best.header;
+}
+
 export interface ZedDiffViewerProps {
   diff: string;
   className?: string;
@@ -125,6 +152,7 @@ export interface ZedDiffViewerProps {
   stagedDiff?: string;
   unstagedDiff?: string;
   fileSources?: Record<string, string>;
+  expandFileContext?: boolean;
   scrollToFilePath?: string;
   fileOrder?: string[];
   isCommitView?: boolean;
@@ -134,7 +162,20 @@ export interface ZedDiffViewerProps {
 }
 
 export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>(({ 
-  diff, className, sessionId, currentScope: _currentScope, stagedDiff, unstagedDiff, fileSources, scrollToFilePath, fileOrder, isCommitView, onChanged, onHunkInfo, onVisibleFileChange 
+  diff,
+  className,
+  sessionId,
+  currentScope: _currentScope,
+  stagedDiff,
+  unstagedDiff,
+  fileSources,
+  expandFileContext = false,
+  scrollToFilePath,
+  fileOrder,
+  isCommitView,
+  onChanged,
+  onHunkInfo,
+  onVisibleFileChange,
 }, ref) => {
   const fileHeaderRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [pendingHunkKeys, setPendingHunkKeys] = useState<Set<string>>(() => new Set());
@@ -149,35 +190,47 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
   }, []);
 
   const stagedHunkHeaderBySig = useMemo(() => {
-    if (!stagedDiff || stagedDiff.trim() === '') return new Map<string, Map<string, string>>();
+    if (!stagedDiff || stagedDiff.trim() === '') return new Map<string, HunkHeaderEntry[]>();
     const parsed = parseDiff(stagedDiff, { nearbySequences: 'zip' });
-    const byFile = new Map<string, Map<string, string>>();
+    const byFile = new Map<string, HunkHeaderEntry[]>();
     for (const file of parsed) {
       const path = toFilePath(file);
-      const m = new Map<string, string>();
+      const list: HunkHeaderEntry[] = [];
       for (const hunk of file.hunks || []) {
         const sig = hunkSignature(hunk);
         if (!sig) continue;
-        m.set(sig, hunk.content);
+        const header = parseHunkHeader(hunk.content);
+        list.push({
+          sig,
+          oldStart: header?.oldStart ?? hunk.oldStart,
+          newStart: header?.newStart ?? hunk.newStart,
+          header: hunk.content,
+        });
       }
-      byFile.set(path, m);
+      byFile.set(path, list);
     }
     return byFile;
   }, [stagedDiff]);
 
   const unstagedHunkHeaderBySig = useMemo(() => {
-    if (!unstagedDiff || unstagedDiff.trim() === '') return new Map<string, Map<string, string>>();
+    if (!unstagedDiff || unstagedDiff.trim() === '') return new Map<string, HunkHeaderEntry[]>();
     const parsed = parseDiff(unstagedDiff, { nearbySequences: 'zip' });
-    const byFile = new Map<string, Map<string, string>>();
+    const byFile = new Map<string, HunkHeaderEntry[]>();
     for (const file of parsed) {
       const path = toFilePath(file);
-      const m = new Map<string, string>();
+      const list: HunkHeaderEntry[] = [];
       for (const hunk of file.hunks || []) {
         const sig = hunkSignature(hunk);
         if (!sig) continue;
-        m.set(sig, hunk.content);
+        const header = parseHunkHeader(hunk.content);
+        list.push({
+          sig,
+          oldStart: header?.oldStart ?? hunk.oldStart,
+          newStart: header?.newStart ?? hunk.newStart,
+          header: hunk.content,
+        });
       }
-      byFile.set(path, m);
+      byFile.set(path, list);
     }
     return byFile;
   }, [unstagedDiff]);
@@ -209,7 +262,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
       const path = toFilePath(f);
       const hasSource = Boolean(fileSources && Object.prototype.hasOwnProperty.call(fileSources, path));
       const source = hasSource ? (fileSources as Record<string, string>)[path] : undefined;
-      const expandedHunks = hasSource ? expandToFullFile(f.hunks || [], source || '') : normalizeHunks(f.hunks || []);
+      const expandedHunks = (expandFileContext && hasSource) ? expandToFullFile(f.hunks || [], source || '') : normalizeHunks(f.hunks || []);
 
       const hunks = expandedHunks.map((hunk, idx) => {
         const sig = hunkSignature(hunk);
@@ -227,7 +280,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
         hunks,
       };
     });
-  }, [diff, fileSources]);
+  }, [diff, fileSources, expandFileContext]);
 
   const scrollToFile = useCallback((filePath: string) => {
     const el = fileHeaderRefs.current.get(filePath);
@@ -318,23 +371,29 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [currentHunkIdx, setCurrentHunkIdx] = useState(0);
   const [focusedHunkKey, setFocusedHunkKey] = useState<string | null>(null);
+  const [focusedHunkSig, setFocusedHunkSig] = useState<{ filePath: string; sig: string; oldStart: number; newStart: number } | null>(null);
+  const [hoveredHunkKey, setHoveredHunkKey] = useState<string | null>(null);
 
   const allHunks = useMemo(() => {
-    const result: Array<{ filePath: string; hunkKey: string; hunkHeader: string; isStaged: boolean; isUntracked: boolean }> = [];
+    const result: Array<{ filePath: string; hunkKey: string; sig: string; oldStart: number; newStart: number; hunkHeader: string; isStaged: boolean; isUntracked: boolean }> = [];
     for (const file of files) {
-      const stagedMap = stagedHunkHeaderBySig.get(file.path);
-      const unstagedMap = unstagedHunkHeaderBySig.get(file.path);
+      const stagedEntries = stagedHunkHeaderBySig.get(file.path);
+      const unstagedEntries = unstagedHunkHeaderBySig.get(file.path);
       for (const hunk of file.hunks) {
         const sig = hunk.__st_hunkSig;
         if (!sig) continue;
-        const stagedHeader = stagedMap?.get(sig);
-        const unstagedHeader = unstagedMap?.get(sig);
+        const stagedHeader = findMatchingHeader(stagedEntries, sig, hunk.oldStart, hunk.newStart);
+        const unstagedHeader = findMatchingHeader(unstagedEntries, sig, hunk.oldStart, hunk.newStart);
         const isUntracked = !stagedHeader && !unstagedHeader;
         result.push({
           filePath: file.path,
           hunkKey: hunk.__st_hunkKey,
+          sig,
+          oldStart: hunk.oldStart,
+          newStart: hunk.newStart,
           hunkHeader: stagedHeader || unstagedHeader || hunk.content,
           isStaged: Boolean(stagedHeader),
           isUntracked,
@@ -344,34 +403,182 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
     return result;
   }, [files, stagedHunkHeaderBySig, unstagedHunkHeaderBySig]);
 
-  useVisibleHunkTracker({
-    hunks: allHunks,
-    containerRef,
-    onVisibleHunkChange: setCurrentHunkIdx,
-  });
+  const computeTopMostVisibleHunkIdx = useCallback((): number => {
+    const root = scrollContainerRef.current;
+    if (!root) return -1;
+    if (allHunks.length === 0) return -1;
+
+    const rootRect = root.getBoundingClientRect();
+    let bestIdx = -1;
+    let bestTop = Infinity;
+
+    for (let i = 0; i < allHunks.length; i++) {
+      const key = allHunks[i]!.hunkKey;
+      const el = root.querySelector(`[data-hunk-key="${key}"]`) as HTMLElement | null;
+      if (!el) continue;
+      // Treat the "hunk position" as the first changed row (Zed's hunk ranges are based on changed rows).
+      const hunkRoot = el.closest('.diff-hunk') as HTMLElement | null;
+      let targetEl: HTMLElement = el;
+      if (hunkRoot) {
+        const rows = Array.from(hunkRoot.querySelectorAll('tr.diff-line')) as HTMLElement[];
+        const firstChangedRow = rows.find((row) => Boolean(row.querySelector('.diff-code-insert, .diff-code-delete')));
+        if (firstChangedRow) targetEl = firstChangedRow;
+      }
+      const rect = targetEl.getBoundingClientRect();
+      if (rect.bottom <= rootRect.top || rect.top >= rootRect.bottom) continue;
+      const top = rect.top - rootRect.top;
+      if (top < bestTop) {
+        bestTop = top;
+        bestIdx = i;
+      }
+    }
+
+    return bestIdx;
+  }, [allHunks]);
+
+  useEffect(() => {
+    const root = scrollContainerRef.current;
+    if (!root) return;
+
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const idx = computeTopMostVisibleHunkIdx();
+        if (idx >= 0) setCurrentHunkIdx(idx);
+      });
+    };
+
+    onScroll();
+    root.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      root.removeEventListener('scroll', onScroll);
+    };
+  }, [computeTopMostVisibleHunkIdx]);
+
+  useEffect(() => {
+    const root = scrollContainerRef.current;
+    if (!root) return;
+
+    const onMouseMove = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (!target) return;
+
+      // Keep hover state stable when moving from the hunk body into the floating controls.
+      const anchorEl = target.closest('[data-hunk-key]') as HTMLElement | null;
+      if (anchorEl) {
+        const next = anchorEl.getAttribute('data-hunk-key') ?? null;
+        setHoveredHunkKey((prev) => (prev === next ? prev : next));
+        return;
+      }
+
+      const hunkRoot = target.closest('.diff-hunk') as HTMLElement | null;
+      if (!hunkRoot) {
+        setHoveredHunkKey((prev) => (prev === null ? prev : null));
+        return;
+      }
+      const anchor = hunkRoot.querySelector('[data-hunk-key]') as HTMLElement | null;
+      const next = anchor?.getAttribute('data-hunk-key') ?? null;
+      setHoveredHunkKey((prev) => (prev === next ? prev : next));
+    };
+
+    const onMouseLeave = () => setHoveredHunkKey(null);
+
+    root.addEventListener('mousemove', onMouseMove, { passive: true });
+    root.addEventListener('mouseleave', onMouseLeave);
+    return () => {
+      root.removeEventListener('mousemove', onMouseMove);
+      root.removeEventListener('mouseleave', onMouseLeave);
+    };
+  }, []);
 
   useEffect(() => {
     onHunkInfo?.(currentHunkIdx + 1, allHunks.length);
   }, [currentHunkIdx, allHunks.length, onHunkInfo]);
 
-  const navigateToHunk = useCallback((direction: 'prev' | 'next') => {
-    if (allHunks.length === 0) return;
-    let newIdx: number;
-    if (direction === 'next') {
-      newIdx = currentHunkIdx >= allHunks.length - 1 ? 0 : currentHunkIdx + 1;
-    } else {
-      newIdx = currentHunkIdx <= 0 ? allHunks.length - 1 : currentHunkIdx - 1;
+  useEffect(() => {
+    if (!focusedHunkSig) return;
+    const candidates = allHunks
+      .map((h, idx) => ({ h, idx }))
+      .filter(({ h }) => h.filePath === focusedHunkSig.filePath && h.sig === focusedHunkSig.sig);
+
+    if (candidates.length === 0) {
+      setFocusedHunkKey(null);
+      setFocusedHunkSig(null);
+      return;
     }
-    setCurrentHunkIdx(newIdx);
-    const targetKey = allHunks[newIdx]?.hunkKey;
-    setFocusedHunkKey(targetKey ?? null);
-    if (targetKey && containerRef.current) {
-      const el = containerRef.current.querySelector(`[data-hunk-key="${targetKey}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    let best = candidates[0]!;
+    let bestScore = Math.abs(best.h.oldStart - focusedHunkSig.oldStart) + Math.abs(best.h.newStart - focusedHunkSig.newStart);
+    for (const c of candidates) {
+      const score = Math.abs(c.h.oldStart - focusedHunkSig.oldStart) + Math.abs(c.h.newStart - focusedHunkSig.newStart);
+      if (score < bestScore) {
+        best = c;
+        bestScore = score;
       }
     }
-  }, [allHunks, currentHunkIdx]);
+
+    const idx = best.idx;
+    const key = best.h.hunkKey ?? null;
+    if (key && key !== focusedHunkKey) setFocusedHunkKey(key);
+    if (idx !== currentHunkIdx) setCurrentHunkIdx(idx);
+  }, [allHunks, focusedHunkSig, focusedHunkKey, currentHunkIdx]);
+
+  const navigateToHunk = useCallback((direction: 'prev' | 'next') => {
+    if (allHunks.length === 0) return;
+    const currentIdx = (() => {
+      if (focusedHunkSig) {
+        const candidates = allHunks
+          .map((h, idx) => ({ h, idx }))
+          .filter(({ h }) => h.filePath === focusedHunkSig.filePath && h.sig === focusedHunkSig.sig);
+        if (candidates.length > 0) {
+          let best = candidates[0]!;
+          let bestScore = Math.abs(best.h.oldStart - focusedHunkSig.oldStart) + Math.abs(best.h.newStart - focusedHunkSig.newStart);
+          for (const c of candidates) {
+            const score = Math.abs(c.h.oldStart - focusedHunkSig.oldStart) + Math.abs(c.h.newStart - focusedHunkSig.newStart);
+            if (score < bestScore) {
+              best = c;
+              bestScore = score;
+            }
+          }
+          return best.idx;
+        }
+      }
+      const visible = computeTopMostVisibleHunkIdx();
+      return visible >= 0 ? visible : Math.max(0, Math.min(currentHunkIdx, allHunks.length - 1));
+    })();
+
+    // Zed's behavior: wrap-around navigation.
+    const newIdx = direction === 'next'
+      ? (currentIdx >= allHunks.length - 1 ? 0 : currentIdx + 1)
+      : (currentIdx <= 0 ? allHunks.length - 1 : currentIdx - 1);
+
+    setCurrentHunkIdx(newIdx);
+    const target = allHunks[newIdx];
+    const targetKey = target?.hunkKey;
+    if (target && target.sig) setFocusedHunkSig({ filePath: target.filePath, sig: target.sig, oldStart: target.oldStart, newStart: target.newStart });
+    setFocusedHunkKey(targetKey ?? null);
+    const scroller = scrollContainerRef.current;
+    if (targetKey && scroller) {
+      const el = scroller.querySelector(`[data-hunk-key="${targetKey}"]`) as HTMLElement | null;
+      if (el) {
+        const hunkRoot = el.closest('.diff-hunk') as HTMLElement | null;
+        let targetEl: HTMLElement = el;
+        if (hunkRoot) {
+          const rows = Array.from(hunkRoot.querySelectorAll('tr.diff-line')) as HTMLElement[];
+          const firstChangedRow = rows.find((row) => Boolean(row.querySelector('.diff-code-insert, .diff-code-delete')));
+          if (firstChangedRow) targetEl = firstChangedRow;
+        }
+        const scrollerRect = scroller.getBoundingClientRect();
+        const elRect = targetEl.getBoundingClientRect();
+        // Center the hunk controls anchor (similar to Zed's Autoscroll::center()).
+        const top = scroller.scrollTop + (elRect.top - scrollerRect.top) - (scroller.clientHeight / 2) + (elRect.height / 2);
+        const clamped = Math.max(0, Math.min(top, scroller.scrollHeight - scroller.clientHeight));
+        scroller.scrollTo({ top: clamped, behavior: 'smooth' });
+      }
+    }
+  }, [allHunks, focusedHunkSig, computeTopMostVisibleHunkIdx, currentHunkIdx]);
 
   const stageAll = useCallback(async (stage: boolean) => {
     if (!sessionId) return;
@@ -391,7 +598,8 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
   }), [navigateToHunk, stageAll]);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const root = scrollContainerRef.current;
+    if (!root) return;
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -404,9 +612,9 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
           }
         }
       },
-      { root: containerRef.current, threshold: 0.3 }
+      { root, threshold: 0.3 }
     );
-    const fileHeaders = containerRef.current.querySelectorAll('[data-diff-file-path]');
+    const fileHeaders = root.querySelectorAll('[data-diff-file-path]');
     fileHeaders.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
   }, [files, onVisibleFileChange]);
@@ -440,7 +648,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
         } as React.CSSProperties
       }
     >
-      <div className="flex-1 overflow-auto">
+      <div ref={scrollContainerRef} className="flex-1 overflow-auto" data-testid="diff-scroll-container">
         {files.map((file) => (
           <div key={file.path} data-testid="diff-file" data-diff-file-path={file.path}>
             <div
@@ -452,7 +660,7 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                 }
                 fileHeaderRefs.current.set(file.path, el);
               }}
-              className="px-3 py-2 text-xs font-semibold"
+              className="px-3 py-2 text-xs font-semibold st-diff-file-header"
               style={{
                 backgroundColor: 'var(--st-surface)',
                 borderBottom: '1px solid var(--st-border-variant)',
@@ -477,10 +685,10 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                     const hasEdits = Boolean(sig && sig.length > 0);
                     if (!hasEdits) return null;
 
-                    const stagedMap = stagedHunkHeaderBySig.get(file.path);
-                    const unstagedMap = unstagedHunkHeaderBySig.get(file.path);
-                    const stagedHeader = stagedMap?.get(sig);
-                    const unstagedHeader = unstagedMap?.get(sig);
+                    const stagedEntries = stagedHunkHeaderBySig.get(file.path);
+                    const unstagedEntries = unstagedHunkHeaderBySig.get(file.path);
+                    const stagedHeader = findMatchingHeader(stagedEntries, sig, hunk.oldStart, hunk.newStart);
+                    const unstagedHeader = findMatchingHeader(unstagedEntries, sig, hunk.oldStart, hunk.newStart);
 
                     const hunkStatus: 'staged' | 'unstaged' | 'untracked' =
                       stagedHeader ? 'staged' : unstagedHeader ? 'unstaged' : 'untracked';
@@ -502,15 +710,47 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                       kind === 'added' ? 'st-hunk-kind--added' : kind === 'deleted' ? 'st-hunk-kind--deleted' : 'st-hunk-kind--modified';
                     const hunkKey = (hunk as any).__st_hunkKey as string;
                     const isPending = pendingHunkKeys.has(hunkKey);
-                    const isFocused = focusedHunkKey === hunkKey;
+                    const isFocused =
+                      focusedHunkKey === hunkKey ||
+                      (focusedHunkSig != null &&
+                        focusedHunkSig.filePath === file.path &&
+                        focusedHunkSig.sig === sig &&
+                        (Math.abs(focusedHunkSig.oldStart - hunk.oldStart) + Math.abs(focusedHunkSig.newStart - hunk.newStart) <= 4));
+                    const isHovered = hoveredHunkKey === hunkKey;
+                    const sigForFocus = sig;
 
-                    const changeKey = getChangeKey(first);
+                    // Anchor controls near the hunk start (Zed places controls at the start of the changed range,
+                    // not on surrounding context lines). `react-diff-view` widgets render *after* the keyed line,
+                    // so we prefer the line *before* the first changed line when available (i.e. the last context
+                    // line right above the hunk), otherwise fall back to the first changed line.
+                    const firstChangedIdx = changes.findIndex((c) => c.type === 'insert' || c.type === 'delete');
+                    const anchorChange =
+                      firstChangedIdx > 0
+                        ? changes[firstChangedIdx - 1]!
+                        : firstChangedIdx === 0
+                          ? changes[0]!
+                          : first;
+                    const changeKey = getChangeKey(anchorChange);
 
                     const element: React.ReactElement | null = isCommitView ? null : (
-                      <div data-testid="diff-hunk-controls" data-hunk-key={hunkKey} className={`st-diff-hunk-actions-anchor ${statusClass} ${kindClass} ${isFocused ? 'st-hunk-focused' : ''}`}>
+                      <div
+                        data-testid="diff-hunk-controls"
+                        data-hunk-key={hunkKey}
+                        className={`st-diff-hunk-actions-anchor ${statusClass} ${kindClass} ${isFocused ? 'st-hunk-focused' : ''} ${isHovered ? 'st-hunk-hovered' : ''}`}
+                      >
                         {hunkStatus === 'staged' && (
-                          <div className="st-hunk-staged-badge" aria-label="Hunk staged">
-                            staged
+                          <div className="st-hunk-staged-badge-sticky" aria-label="Hunk staged">
+                            <div className="st-hunk-staged-badge" title="Staged" aria-hidden="true">
+                              <svg viewBox="0 0 16 16" width="10" height="10" fill="none">
+                                <path
+                                  d="M3.5 8.2l2.6 2.6L12.6 4.6"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            </div>
                           </div>
                         )}
                         <div className="st-diff-hunk-actions">
@@ -518,8 +758,11 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                             type="button"
                             data-testid="diff-hunk-stage"
                             disabled={!canStageOrUnstage || isPending}
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFocusedHunkKey(hunkKey);
+                              setHoveredHunkKey(hunkKey);
+                              if (sigForFocus) setFocusedHunkSig({ filePath: file.path, sig: sigForFocus, oldStart: hunk.oldStart, newStart: hunk.newStart });
                               if (hunkStatus === 'untracked') return stageFile(file.path, true, hunkKey);
                               if (file.diffType === 'delete') return stageFile(file.path, stageLabel === 'Stage', hunkKey);
                               if (!stageHeader) return;
@@ -535,8 +778,11 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                               type="button"
                               data-testid="diff-hunk-restore"
                               disabled={!canRestore || isPending || (file.diffType !== 'delete' && !stageHeader)}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setFocusedHunkKey(hunkKey);
+                                setHoveredHunkKey(hunkKey);
+                                if (sigForFocus) setFocusedHunkSig({ filePath: file.path, sig: sigForFocus, oldStart: hunk.oldStart, newStart: hunk.newStart });
                                 if (file.diffType === 'delete') return restoreFile(file.path, hunkKey);
                                 if (!stageHeader) return;
                                 restoreHunk(file.path, restoreScope, stageHeader, hunkKey);
@@ -570,14 +816,53 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
             --st-diff-hunk-pad-y: 30px;
             /* Zed-like: square hunks (no rounding). */
             --st-diff-hunk-radius: 0px;
+            --st-diff-gutter-width: 54px;
           }
 
-          .st-diff-table.diff { table-layout: fixed; width: 100%; }
+          /* Horizontal-scroll behavior: code scrolls, but headers/gutters stay fixed (Zed-like). */
+          .st-diff-file-header {
+            position: sticky;
+            left: 0;
+            z-index: 20;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+
+          .st-diff-table.diff { table-layout: auto; border-collapse: separate; border-spacing: 0; }
           .st-diff-table .diff-line { font-size: 12px; line-height: 20px; }
           /* No grid lines (Zed-like). */
           .st-diff-table .diff-line td { border-bottom: 0; }
-          .st-diff-table .diff-gutter { padding: 0 10px; border-right: 0; }
-          .st-diff-table .diff-code { padding: 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+          .st-diff-table .diff-gutter { padding: 0 10px; border-right: 0; min-width: var(--st-diff-gutter-width); width: var(--st-diff-gutter-width); }
+          /* Ensure the <colgroup> (if present) matches our gutter widths (prevents sticky overlap). */
+          .st-diff-table col.diff-gutter-col { width: var(--st-diff-gutter-width); }
+          /* Zed-like: preserve long lines and allow horizontal scrolling. */
+          .st-diff-table { width: max-content; min-width: 100%; }
+          .st-diff-table .diff-code { padding: 0 10px; white-space: pre; overflow-wrap: normal; word-break: normal; }
+          /* Ensure per-line backgrounds extend across the full scrollable width. */
+          .st-diff-table td.diff-code-insert,
+          .st-diff-table pre.diff-code-insert { background-color: var(--diff-code-insert-background-color); }
+          .st-diff-table td.diff-code-delete,
+          .st-diff-table pre.diff-code-delete { background-color: var(--diff-code-delete-background-color); }
+          .st-diff-table td.diff-gutter-normal { background-color: var(--st-surface); }
+          .st-diff-table td.diff-gutter-insert { background-color: var(--diff-gutter-insert-background-color); }
+          .st-diff-table td.diff-gutter-delete { background-color: var(--diff-gutter-delete-background-color); }
+
+          /* Keep both line-number gutters fixed while horizontally scrolling the code. */
+          .st-diff-table.diff-unified tr.diff-line > td.diff-gutter:nth-child(1) {
+            position: sticky;
+            left: 0;
+            z-index: 21;
+            background-color: var(--st-surface);
+            box-shadow: 1px 0 0 color-mix(in srgb, var(--st-border-variant) 85%, transparent);
+          }
+          .st-diff-table.diff-unified tr.diff-line > td.diff-gutter:nth-child(2) {
+            position: sticky;
+            left: var(--st-diff-gutter-width);
+            z-index: 20;
+            background-color: var(--st-surface);
+            box-shadow: 1px 0 0 color-mix(in srgb, var(--st-border-variant) 85%, transparent);
+          }
 
           /* Zed-like: only "edit hunks" are treated as blocks. */
           .st-diff-table .diff-hunk { position: relative; }
@@ -610,75 +895,20 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
             --st-hunk-bg: var(--st-diff-hunk-bg);
             --st-hunk-frame-color: var(--st-text-faint);
           }
-          /* Spacer: empty line above & below each hunk block. */
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr.diff-line:first-child td {
-            padding-top: var(--st-diff-hunk-pad-y);
-          }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr.diff-line:last-of-type td {
-            padding-bottom: var(--st-diff-hunk-pad-y);
-          }
-
-          /* Left block marker bar. */
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete)::before {
+          /* Zed-like: indicate hunks via a narrow gutter strip on changed rows (not full block backgrounds). */
+          .st-diff-table tr.diff-line:has(.diff-code-insert, .diff-code-delete) td.diff-gutter:first-of-type::before {
             content: '';
             position: absolute;
-            left: 6px;
-            top: 6px;
-            bottom: 6px;
+            left: 0;
+            top: 0;
+            bottom: 0;
             width: 4px;
-            border-radius: 0;
             background: var(--st-hunk-marker-color);
-            opacity: 0.85;
-            pointer-events: none;
-          }
-
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete)::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            border-radius: var(--st-diff-hunk-radius);
-            pointer-events: none;
-            opacity: 0;
-            z-index: 1;
-            box-shadow: 0 0 0 1px color-mix(in srgb, var(--st-hunk-frame-color) 36%, transparent);
-            transition: opacity 110ms ease;
-          }
-          /* Zed-like: staged_hollow -> staged has border; unstaged filled -> no border even on hover. */
-          .st-diff-table .diff-hunk:has(.st-hunk-status--staged):has(.diff-code-insert, .diff-code-delete)::after {
             opacity: 1;
+            pointer-events: none;
           }
-          .st-diff-table .diff-hunk:has(.st-hunk-status--staged):has(.diff-code-insert, .diff-code-delete):hover::after {
-            box-shadow: 0 0 0 1px color-mix(in srgb, var(--st-hunk-frame-color) 48%, transparent);
-          }
-          .st-diff-table .diff-hunk:has(.st-hunk-status--unstaged):has(.diff-code-insert, .diff-code-delete)::after,
-          .st-diff-table .diff-hunk:has(.st-hunk-status--unstaged):has(.diff-code-insert, .diff-code-delete):hover::after {
-            opacity: 0;
-          }
-
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr td {
-            background-image: linear-gradient(
-              color-mix(in srgb, var(--st-hunk-bg) 85%, transparent),
-              color-mix(in srgb, var(--st-hunk-bg) 85%, transparent)
-            );
-          }
-
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr:first-child td:first-child { border-top-left-radius: var(--st-diff-hunk-radius); }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr:first-child td:last-child { border-top-right-radius: var(--st-diff-hunk-radius); }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr:last-child td:first-child { border-bottom-left-radius: var(--st-diff-hunk-radius); }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) tr:last-child td:last-child { border-bottom-right-radius: var(--st-diff-hunk-radius); }
-
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover tr td {
-            background-image: linear-gradient(
-              color-mix(in srgb, var(--st-hunk-bg) 90%, transparent),
-              color-mix(in srgb, var(--st-hunk-bg) 90%, transparent)
-            );
-          }
-          /* Extra contrast on hover (more Zed-like). */
-          .st-diff-table .diff-hunk:has(.st-hunk-status--unstaged):has(.diff-code-insert, .diff-code-delete):hover {
-            filter: saturate(1.04) brightness(1.02);
-          }
-          .st-diff-table .diff-hunk:has(.st-hunk-status--staged):has(.diff-code-insert, .diff-code-delete):hover {
-            filter: saturate(1.02) brightness(1.01);
+          .st-diff-table .diff-hunk:has(.st-hunk-status--staged) tr.diff-line:has(.diff-code-insert, .diff-code-delete) td.diff-gutter:first-of-type::before {
+            opacity: 0.75;
           }
 
           .st-diff-table .diff-hunk:has(.st-hunk-focused) {
@@ -689,14 +919,14 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
 
           /* The widget row is used only as an "anchor"; it should not consume height. */
           .st-diff-table .diff-widget { height: 0; }
-          .st-diff-table .diff-widget td { padding: 0; border: 0; height: 0; }
-          .st-diff-table .diff-widget-content { padding: 0; border: 0; height: 0; }
+          .st-diff-table .diff-widget td { padding: 0; border: 0; height: 0; overflow: visible; }
+          .st-diff-table .diff-widget-content { padding: 0; border: 0; height: 0; overflow: visible; }
 
-          .st-diff-table .st-diff-hunk-actions-anchor { height: 0; }
+          .st-diff-table .st-diff-hunk-actions-anchor { height: 0; position: relative; }
           .st-diff-table .st-diff-hunk-actions {
             position: absolute;
             top: 0;
-            transform: translateY(-58%);
+            transform: translateY(-50%);
             right: 10px;
             display: inline-flex;
             align-items: center;
@@ -708,36 +938,56 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
             box-shadow: 0 10px 28px color-mix(in srgb, #000 35%, transparent);
             backdrop-filter: blur(6px);
             opacity: 0;
+            visibility: hidden;
             pointer-events: none;
-            transition: opacity 120ms ease;
-            z-index: 5;
+            transition: opacity 120ms ease, visibility 0s linear 120ms;
+            z-index: 50;
           }
-          .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete):hover .st-diff-hunk-actions {
+          /* Avoid hover flicker: hover state is driven by JS via .st-hunk-hovered. */
+          .st-diff-table .st-hunk-hovered .st-diff-hunk-actions,
+          .st-diff-table .st-hunk-focused .st-diff-hunk-actions,
+          .st-diff-table .st-diff-hunk-actions:hover {
             opacity: 1;
+            visibility: visible;
+            transition: opacity 120ms ease;
             pointer-events: auto;
           }
 
           /* Persistent staged badge (not hover-only). */
+          /* Sticky wrapper so the badge stays in the left rail while horizontally scrolling. */
+          .st-diff-table .st-hunk-staged-badge-sticky {
+            position: sticky;
+            /* Inside the first gutter, numbers are right-aligned, so a small badge on the left won't cover them. */
+            left: 6px;
+            z-index: 60;
+            width: 0;
+            height: 0;
+            pointer-events: none;
+          }
           .st-diff-table .st-hunk-staged-badge {
             position: absolute;
-            left: 14px;
-            top: 8px;
-            z-index: 3;
-            pointer-events: none;
-            font-size: 10px;
-            line-height: 1;
-            padding: 3px 6px;
-            border-radius: 6px;
-            border: 1px solid color-mix(in srgb, var(--st-hunk-frame-color) 45%, var(--st-border-variant));
-            background: color-mix(in srgb, var(--st-hunk-bg) 65%, transparent);
-            color: color-mix(in srgb, var(--st-hunk-frame-color) 70%, var(--st-text-muted));
-            text-transform: uppercase;
-            letter-spacing: 0.02em;
+            top: 0;
+            transform: translateY(-50%);
+            left: 0;
+            width: 14px;
+            height: 14px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid color-mix(in srgb, var(--st-hunk-frame-color) 70%, var(--st-border-variant));
+            background: color-mix(in srgb, var(--st-hunk-frame-color) 18%, var(--st-surface));
+            color: color-mix(in srgb, var(--st-hunk-frame-color) 85%, var(--st-text));
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--st-bg) 60%, transparent);
           }
 
 
           .st-diff-hunk-btn {
             font-size: 12px;
+            min-width: 68px;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
             padding: 4px 8px;
             border-radius: 8px;
             border: 0;
@@ -755,7 +1005,6 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
           }
 
           /* Clearer line numbers: avoid default link color. */
-          .st-diff-table .diff-gutter { background: color-mix(in srgb, var(--st-surface) 78%, transparent); }
           .st-diff-table .diff-gutter > a { color: var(--st-text-muted); font-weight: 500; }
           .st-diff-table .diff-gutter:hover > a { color: var(--st-text); }
         `}

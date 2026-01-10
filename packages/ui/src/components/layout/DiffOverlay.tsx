@@ -563,11 +563,11 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
 
       {isWorkingTree && (
         <div
-          className="flex items-center justify-between px-3 py-1.5"
+          className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-3 py-1.5"
           style={{ backgroundColor: 'var(--st-surface)', borderBottom: `1px solid ${border}` }}
           data-testid="diff-toolbar"
         >
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 min-w-0 justify-start">
             <ToolbarButton
               onClick={() => handleStageAll(true)}
               disabled={stagingInProgress || !diff}
@@ -583,10 +583,10 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
             >
               <Minus className="w-3.5 h-3.5" />
               <span>Unstage All</span>
-            </ToolbarButton>
-          </div>
+              </ToolbarButton>
+            </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 justify-center">
             <ToolbarButton
               onClick={() => handleHunkNavigation('prev')}
               disabled={!hasHunks}
@@ -610,21 +610,23 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
               variant="icon"
             >
               <ChevronDown className="w-4 h-4" />
-            </ToolbarButton>
+              </ToolbarButton>
           </div>
 
-          {visibleFilePath && (
-            <div className="flex items-center gap-1">
-              <ToolbarDivider />
-              <span
-                className="text-[10px] font-mono truncate max-w-[200px]"
-                style={{ color: 'var(--st-text-faint)' }}
-                title={visibleFilePath}
-              >
-                {visibleFilePath.split('/').pop()}
-              </span>
-            </div>
-          )}
+          <div className="flex items-center gap-1 min-w-0 justify-end">
+            {visibleFilePath && (
+              <>
+                <ToolbarDivider />
+                <span
+                  className="text-[10px] font-mono truncate max-w-[200px]"
+                  style={{ color: 'var(--st-text-faint)' }}
+                  title={visibleFilePath}
+                >
+                  {visibleFilePath.split('/').pop()}
+                </span>
+              </>
+            )}
+          </div>
         </div>
       )}
 

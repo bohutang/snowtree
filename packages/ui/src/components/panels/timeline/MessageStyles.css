@@ -186,6 +186,10 @@
   color: var(--st-danger, #e06c75);
 }
 
+.status-interrupted {
+  color: var(--st-warning, #e5c07b);
+}
+
 /* Timestamp styling */
 .message-timestamp {
   margin-top: 8px;

@@ -37,9 +37,9 @@ export type WorkingTreeGroups = {
 const MAX_UNTRACKED_FILE_BYTES = 1024 * 1024; // 1MB
 
 export class GitDiffManager {
-  // Zed-like hunking: a hunk is only the contiguous changed lines.
-  // Any unchanged line should start a new hunk, so we request zero context from git.
-  private readonly WORKING_DIFF_CONTEXT_LINES = 0;
+  // GitHub-style diff context: show a small amount of surrounding unchanged lines for readability.
+  // Match Zed's default excerpt context lines (EditorSettings.excerpt_context_lines, default 2).
+  private readonly WORKING_DIFF_CONTEXT_LINES = 2;
   constructor(
     private gitExecutor: GitExecutor,
     private logger?: Logger,
@@ -493,7 +493,7 @@ export class GitDiffManager {
     const { stdout: diff } = await this.runGit({
       sessionId,
       cwd: worktreePath,
-      argv: ['git', 'diff', '--color=never', '--unified=0', '--src-prefix=a/', '--dst-prefix=b/', `${fromCommit}..${to}`],
+      argv: ['git', 'diff', '--color=never', `--unified=${this.WORKING_DIFF_CONTEXT_LINES}`, '--src-prefix=a/', '--dst-prefix=b/', `${fromCommit}..${to}`],
       timeoutMs: 120_000,
       meta: { source: 'gitDiff', operation: 'diff-commit', fromCommit, toCommit: to },
     });
@@ -526,7 +526,7 @@ export class GitDiffManager {
     const { stdout: diff } = await this.runGit({
       sessionId,
       cwd: worktreePath,
-      argv: ['git', 'show', '--color=never', '--unified=0', '--src-prefix=a/', '--dst-prefix=b/', '--format=', hash],
+      argv: ['git', 'show', '--color=never', `--unified=${this.WORKING_DIFF_CONTEXT_LINES}`, '--src-prefix=a/', '--dst-prefix=b/', '--format=', hash],
       timeoutMs: 120_000,
       meta: { source: 'gitDiff', operation: 'show', commit: hash },
     });

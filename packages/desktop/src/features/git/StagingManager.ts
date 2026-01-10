@@ -151,7 +151,8 @@ export class GitStagingManager {
   async stageHunk(options: StageHunkOptions): Promise<StageLinesResult> {
     try {
       const scope = options.isStaging ? 'unstaged' : 'staged';
-      const fullDiff = await this.getFileDiff(options.worktreePath, options.filePath, scope, options.sessionId);
+      // Keep hunk operations aligned with the UI diff context lines, so the hunk header matches.
+      const fullDiff = await this.getFileDiff(options.worktreePath, options.filePath, scope, options.sessionId, 2);
 
       if (fullDiff.includes('Binary files differ')) {
         return { success: false, error: 'Cannot stage hunks of binary files' };
@@ -189,7 +190,8 @@ export class GitStagingManager {
   async restoreHunk(options: RestoreHunkOptions): Promise<StageLinesResult> {
     try {
       const fullDiffScope = options.scope === 'staged' ? 'staged' : 'unstaged';
-      const fullDiff = await this.getFileDiff(options.worktreePath, options.filePath, fullDiffScope, options.sessionId);
+      // Keep hunk operations aligned with the UI diff context lines, so the hunk header matches.
+      const fullDiff = await this.getFileDiff(options.worktreePath, options.filePath, fullDiffScope, options.sessionId, 2);
 
       if (fullDiff.includes('Binary files differ')) {
         return { success: false, error: 'Cannot restore hunks of binary files' };
@@ -333,9 +335,10 @@ export class GitStagingManager {
     worktreePath: string,
     filePath: string,
     scope: 'staged' | 'unstaged',
-    sessionId: string
+    sessionId: string,
+    unifiedLines: number = 0
   ): Promise<string> {
-    const unified = '--unified=0';
+    const unified = `--unified=${unifiedLines}`;
     const argv =
       scope === 'staged'
         ? ['git', 'diff', '--cached', '--color=never', unified, '--src-prefix=a/', '--dst-prefix=b/', 'HEAD', '--', filePath]

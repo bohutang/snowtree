@@ -210,7 +210,6 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     if (!session) return;
 
     setIsProcessing(true);
-    setSelectedTool(tool);
 
     try {
       const desiredPanelType = tool === 'codex' ? 'codex' : 'claude';

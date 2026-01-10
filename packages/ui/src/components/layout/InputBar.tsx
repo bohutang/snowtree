@@ -353,7 +353,6 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
   focusRequestId
 }) => {
   const [isFocused, setIsFocused] = useState(false);
-  const [isEmpty, setIsEmpty] = useState(true);
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
   const editorRef = useRef<HTMLDivElement>(null);
   const [aiToolsStatus, setAiToolsStatus] = useState<AiToolsStatus | null>(null);
@@ -384,12 +383,6 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     if (!editorRef.current) return '';
     return editorRef.current.innerText || '';
   }, []);
-
-  const checkEmpty = useCallback(() => {
-    const text = getEditorText().trim();
-    const hasPills = editorRef.current?.querySelector('[data-image-id]') !== null;
-    setIsEmpty(!text && !hasPills);
-  }, [getEditorText]);
 
   const insertTextAtCursor = useCallback((text: string) => {
     const editor = editorRef.current;
@@ -631,12 +624,11 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       const currentIds = new Set(Array.from(currentPills).map(p => p.getAttribute('data-image-id')));
       
       setImageAttachments((prev) => prev.filter((img) => currentIds.has(img.id)));
-      checkEmpty();
     });
 
     observer.observe(editor, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
-  }, [checkEmpty]);
+  }, []);
 
   const handleSubmit = useCallback(() => {
     const text = getEditorText().trim();
@@ -673,7 +665,6 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       }
     }
     setImageAttachments([]);
-    setIsEmpty(true);
   }, [emitSelectionChange, getEditorText, imageAttachments, isProcessing, onSend]);
 
   const isRunning = session.status === 'running' || session.status === 'initializing';
@@ -1254,7 +1245,6 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
                   aria-multiline="true"
                   data-testid="input-editor"
                   onKeyDown={handleKeyDown}
-                  onInput={checkEmpty}
                   onPaste={handleEditorPaste}
                   onCopy={handleEditorCopy}
                   onFocus={() => {

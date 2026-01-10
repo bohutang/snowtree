@@ -191,7 +191,7 @@ export const MainLayout: React.FC = React.memo(() => {
     if (!session || isProcessing) return;
     if (session.toolType !== 'codex' && session.toolType !== 'claude') return;
 
-    const toolForSession = session.toolType;
+    const toolForSession = selectedTool;
 
     const commitPrompt = [
       'Action: create a git commit for the current uncommitted changes in this session.',
@@ -215,7 +215,7 @@ export const MainLayout: React.FC = React.memo(() => {
     });
 
     await sendMessageToTool(toolForSession, commitPrompt, { skipCheckpointAutoCommit: true });
-  }, [session, isProcessing, handleCloseDiff, sendMessageToTool]);
+  }, [session, isProcessing, selectedTool, handleCloseDiff, sendMessageToTool]);
 
   const handleRequestPushPR = useCallback(async () => {
     if (!session || isProcessing) return;
@@ -224,7 +224,7 @@ export const MainLayout: React.FC = React.memo(() => {
     setInputFocusRequestId((prev) => prev + 1);
 
     if (session.toolType !== 'codex' && session.toolType !== 'claude') return;
-    const toolForSession = session.toolType;
+    const toolForSession = selectedTool;
 
     const headBranch = branchName || 'main';
     const baseBranch = session.baseBranch || 'main';
@@ -283,7 +283,7 @@ export const MainLayout: React.FC = React.memo(() => {
     });
 
     await sendMessageToTool(toolForSession, pushPrompt, { skipCheckpointAutoCommit: true });
-  }, [session, isProcessing, handleCloseDiff, sendMessageToTool, branchName]);
+  }, [session, isProcessing, selectedTool, handleCloseDiff, sendMessageToTool, branchName]);
 
   const handleCommitClick = useCallback((target: DiffTarget, files: FileChange[]) => {
     setSelectedDiffTarget(target);

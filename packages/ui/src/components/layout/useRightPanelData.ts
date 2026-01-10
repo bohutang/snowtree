@@ -172,14 +172,15 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
     throw new Error(message);
   }, [sessionId]);
 
-  const loadAll = useCallback(async (selectFirst: boolean) => {
+  const loadAll = useCallback(async (selectFirst: boolean, options?: { showLoading?: boolean }) => {
     if (!sessionId) return;
 
     cancelPending();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    setIsLoading(true);
+    const showLoading = options?.showLoading !== false;
+    if (showLoading) setIsLoading(true);
     setError(null);
 
     try {
@@ -220,20 +221,24 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
       }
     } finally {
       if (!controller.signal.aborted) {
-        setIsLoading(false);
+        if (showLoading) setIsLoading(false);
       }
     }
   }, [sessionId, cancelPending, fetchCommits, fetchWorkingTree, fetchCommitFiles]);
 
   const refresh = useCallback(() => {
-    void loadAll(false);
+    void loadAll(false, { showLoading: true });
+  }, [loadAll]);
+
+  const backgroundRefresh = useCallback(() => {
+    void loadAll(false, { showLoading: false });
   }, [loadAll]);
 
   // Use a ref to always have the latest refresh function without changing scheduleRefresh's identity
-  const refreshRef = useRef(refresh);
+  const refreshRef = useRef(backgroundRefresh);
   useEffect(() => {
-    refreshRef.current = refresh;
-  }, [refresh]);
+    refreshRef.current = backgroundRefresh;
+  }, [backgroundRefresh]);
 
   const scheduleRefresh = useCallback(() => {
     if (refreshTimerRef.current) {
@@ -254,7 +259,7 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
       setError(null);
       return;
     }
-    void loadAll(true);
+    void loadAll(true, { showLoading: true });
   }, [sessionId, loadAll]);
 
   useEffect(() => {
@@ -292,6 +297,10 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
       const status = (data as { gitStatus?: unknown }).gitStatus as Record<string, unknown> | undefined;
       const signature = status ? JSON.stringify({
         state: status.state,
+        staged: status.staged,
+        modified: status.modified,
+        untracked: status.untracked,
+        conflicted: status.conflicted,
         ahead: status.ahead,
         behind: status.behind,
         additions: status.additions,

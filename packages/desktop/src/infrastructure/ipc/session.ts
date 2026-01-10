@@ -82,15 +82,16 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
 
   ipcMain.handle('sessions:stop', async (_event, sessionId: string) => {
     try {
+      // Mark stopped first so executor exit events don't transiently flip the session back to waiting/error.
+      sessionManager.updateSessionStatus(sessionId, 'stopped');
       const panels = panelManager.getPanelsForSession(sessionId);
       for (const panel of panels) {
         if (panel.type === 'claude') {
-          await claudeExecutor.kill(panel.id);
+          await claudeExecutor.kill(panel.id, 'interrupted');
         } else if (panel.type === 'codex') {
-          await codexExecutor.kill(panel.id);
+          await codexExecutor.kill(panel.id, 'interrupted');
         }
       }
-      sessionManager.updateSessionStatus(sessionId, 'stopped');
       return { success: true };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to stop session' };

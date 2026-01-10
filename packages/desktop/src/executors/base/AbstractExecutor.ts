@@ -53,6 +53,7 @@ export abstract class AbstractExecutor extends EventEmitter {
   protected runtimeMetaByPanel = new Map<string, { cliModel?: string; cliReasoningEffort?: string; cliSandbox?: string; cliAskForApproval?: string }>();
   private pendingQuestions = new Map<string, { toolUseId: string; questions: unknown }>();
   private activeThinkingByPanel = new Map<string, { seq: number; thinkingId: string }>();
+  private terminationByPanel = new Map<string, { reason: 'interrupted' | 'terminated'; atMs: number }>();
 
   constructor(
     protected sessionManager: SessionManager,
@@ -770,12 +771,63 @@ export abstract class AbstractExecutor extends EventEmitter {
   }
 
   /** Kill a process */
-  async kill(panelId: string): Promise<void> {
+  protected getTerminationReason(panelId: string): 'interrupted' | 'terminated' | undefined {
+    return this.terminationByPanel.get(panelId)?.reason;
+  }
+
+  private clearTermination(panelId: string): void {
+    this.terminationByPanel.delete(panelId);
+  }
+
+  private finalizeInFlightOps(panelId: string, sessionId: string, reason: 'interrupted' | 'terminated'): void {
+    const terminationMeta = { termination: reason };
+
+    const cliOp = this.cliOperationByPanel.get(panelId);
+    if (cliOp) {
+      const durationMs = Date.now() - cliOp.startMs;
+      const runtime = this.runtimeMetaByPanel.get(panelId) || {};
+      this.recordTimelineCommand({
+        sessionId,
+        panelId,
+        kind: 'cli.command',
+        status: 'failed',
+        durationMs,
+        tool: this.getToolType(),
+        meta: { operationId: cliOp.operationId, ...runtime, ...terminationMeta },
+      });
+      this.cliOperationByPanel.delete(panelId);
+    }
+
+    const byId = this.pendingToolOpByPanelId.get(panelId);
+    if (byId) {
+      for (const [operationId, op] of byId.entries()) {
+        const durationMs = Date.now() - op.startMs;
+        this.recordTimelineCommand({
+          sessionId,
+          panelId,
+          kind: op.kind,
+          status: 'failed',
+          durationMs,
+          tool: this.getToolType(),
+          meta: { operationId, ...terminationMeta },
+        });
+      }
+      this.pendingToolOpByPanelId.delete(panelId);
+    }
+    this.pendingToolOpByPanel.delete(panelId);
+    this.activeThinkingByPanel.delete(panelId);
+    this.pendingQuestions.delete(panelId);
+  }
+
+  async kill(panelId: string, reason: 'interrupted' | 'terminated' = 'terminated'): Promise<void> {
     const process = this.processes.get(panelId);
     if (!process) return;
 
     const { sessionId } = process;
     const pid = process.pty.pid;
+
+    this.terminationByPanel.set(panelId, { reason, atMs: Date.now() });
+    this.finalizeInFlightOps(panelId, sessionId, reason);
 
     await this.cleanupResources(sessionId);
 
@@ -785,6 +837,7 @@ export abstract class AbstractExecutor extends EventEmitter {
 
     this.processes.delete(panelId);
     this.emit('exit', { panelId, sessionId, exitCode: null, signal: 9 } as ExecutorExitEvent);
+    this.clearTermination(panelId);
   }
 
   /** Kill process tree */
