@@ -76,6 +76,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('sessions:change-file-stage', sessionId, options),
     restoreFile: (sessionId: string, options: { filePath: string }): Promise<IPCResponse> =>
       ipcRenderer.invoke('sessions:restore-file', sessionId, options),
+    getCommitGithubUrl: (sessionId: string, options: { commitHash: string }): Promise<IPCResponse> =>
+      ipcRenderer.invoke('sessions:get-commit-github-url', sessionId, options),
   },
 
   panels: {

@@ -3,17 +3,17 @@ import { colors } from './constants';
 import { StackConnector } from './StackConnector';
 import { CommitItem } from './CommitItem';
 import type { CommitData } from './types';
-import { formatCommitHoverTitle } from './utils';
 
 export interface CommitListProps {
   commits: CommitData[];
   selectedCommitHash: string | null;
   isWorkingTreeSelected: boolean;
   onCommitSelect: (commit: CommitData) => void;
+  onBaseCommitOpenGitHub?: (commit: CommitData) => void;
 }
 
 export const CommitList: React.FC<CommitListProps> = React.memo(
-  ({ commits, selectedCommitHash, isWorkingTreeSelected, onCommitSelect }) => {
+  ({ commits, selectedCommitHash, isWorkingTreeSelected, onCommitSelect, onBaseCommitOpenGitHub }) => {
     const uncommitted = commits.find((c) => c.id === 0) || null;
     const baseCommit = commits.find((c) => c.id === -1) || null;
     const sessionCommits = commits.filter((c) => c.id > 0);
@@ -33,7 +33,7 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
     return (
       <div>
         {uncommitted && (
-          <div className="flex" title={formatCommitHoverTitle(uncommitted)}>
+          <div className="flex">
             <div className="w-5 flex flex-col items-center pt-3">
               <div
                 className="w-2 h-2 rounded-full"
@@ -64,7 +64,7 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
           const isSelected = selectedCommitHash === commit.after_commit_hash;
           const isLastSession = idx === sessionCommits.length - 1;
           return (
-            <div key={commit.after_commit_hash} className="flex" title={formatCommitHoverTitle(commit)}>
+            <div key={commit.after_commit_hash} className="flex">
               <div className="w-5 flex flex-col items-center pt-3">
                 <div
                   className="w-2 h-2 rounded-full"
@@ -93,7 +93,7 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
         })}
 
         {baseCommit && (
-          <div className="flex" title={formatCommitHoverTitle(baseCommit)}>
+          <div className="flex">
             <div className="w-5 flex flex-col items-center pt-3">
               <div
                 className="w-2 h-2 rounded-full"
@@ -107,8 +107,8 @@ export const CommitList: React.FC<CommitListProps> = React.memo(
               <CommitItem
                 commit={baseCommit}
                 isSelected={false}
-                badge="base"
-                onClick={() => {}} // Base commit is not selectable
+                onClick={() => onBaseCommitOpenGitHub?.(baseCommit)}
+                isClickable={Boolean(onBaseCommitOpenGitHub)}
               />
             </div>
           </div>

@@ -136,6 +136,15 @@ export class API {
 
       return result.data || { success: true };
     },
+
+    async getCommitGithubUrl(sessionId: string, options: { commitHash: string }): Promise<{ url: string } | null> {
+      requireElectron();
+      const result = await window.electronAPI.sessions.getCommitGithubUrl(sessionId, options);
+      if (!result.success || !result.data) {
+        return null;
+      }
+      return result.data;
+    },
   };
 
   static projects = {

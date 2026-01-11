@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, ChevronDown, GitCommit, GitPullRequest, Download, RotateCw } from 'lucide-react';
+import { RefreshCw, ChevronDown, GitCommit, GitPullRequest, Download, RotateCw, Check } from 'lucide-react';
 import { useRightPanelData, type Commit } from '../useRightPanelData';
 import type { FileChange, RightPanelProps } from '../types';
 import type { DiffTarget } from '../../../types/diff';
@@ -150,6 +150,21 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
       }
     }, [remotePullRequest?.url]);
 
+    const handleBaseCommitOpenGitHub = useCallback(async (commit: Commit) => {
+      if (!commit.after_commit_hash || !session?.id) return;
+      try {
+        const result = await window.electronAPI?.sessions?.getCommitGithubUrl?.(
+          session.id,
+          { commitHash: commit.after_commit_hash }
+        );
+        if (result?.success && result.data?.url) {
+          await window.electronAPI?.invoke?.('shell:openExternal', result.data.url);
+        }
+      } catch {
+        // ignore
+      }
+    }, [session?.id]);
+
     const isWorkingTreeSelected = selection?.kind === 'working';
     const selectedCommitHash =
       selection?.kind === 'commit' ? selection.hash : null;
@@ -206,6 +221,9 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
       (workingTree?.unstaged.length || 0) + (workingTree?.untracked.length || 0)
     );
     const canUnstageAll = Boolean(workingTree?.staged.length || 0);
+
+    // Check if there are any session commits (id > 0, not uncommitted or base)
+    const hasSessionCommits = commits.some((c) => c.id > 0);
 
     const showHunkProgress = isWorkingTreeSelected && totalChanges > 0 && totalHunks > 0;
     const progressRatio = showHunkProgress && totalHunks > 0 ? stagedHunks / totalHunks : 0;
@@ -279,123 +297,8 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
           borderLeft: `1px solid ${colors.border}`,
         }}
       >
-        <div
-          className="flex-shrink-0"
-          style={{ borderBottom: `1px solid ${colors.border}` }}
-        >
-          <div style={{ backgroundColor: colors.bg.secondary }}>
-            <div className="flex items-center justify-between px-3 py-2">
-              <div
-                className="text-xs font-medium"
-                style={{ color: colors.text.secondary }}
-              >
-                Sync commits to Remote PR
-              </div>
-              <div className="flex items-center gap-1">
-                {remotePullRequest?.number && remotePullRequest.url && (
-                  <button
-                    type="button"
-                    onClick={handleOpenRemotePullRequest}
-                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring"
-                    style={{ color: colors.accent }}
-                    title="Open remote pull request"
-                    data-testid="right-panel-open-remote-pr"
-                  >
-                    <GitPullRequest className="w-3 h-3" />
-                    PR #{remotePullRequest.number}
-                  </button>
-                )}
-                {onPushPR && (
-                  <button
-                    type="button"
-                    onClick={onPushPR}
-                    disabled={isPushPRDisabled || isDisabled}
-                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                    style={{ color: colors.accent }}
-                    title="Sync committed commits to remote PR"
-                    data-testid="right-panel-sync-remote-pr"
-                  >
-                    <GitPullRequest className="w-3 h-3" />
-                    Remote PR
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={refresh}
-                  disabled={isDisabled}
-                  className="p-1.5 rounded transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                  title="Refresh"
-                >
-                  <RefreshCw
-                    className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`}
-                    style={{ color: colors.text.muted }}
-                  />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ borderTop: `1px solid ${colors.border}` }} />
-
-          <div
-            className="flex items-center justify-between px-3 py-2"
-            style={{ backgroundColor: colors.bg.secondary }}
-          >
-            <button
-              type="button"
-              onClick={() => setIsCommitsExpanded(!isCommitsExpanded)}
-              className="flex items-center gap-1.5 text-xs font-medium transition-all duration-75 px-1.5 py-0.5 -ml-1.5 rounded st-hoverable st-focus-ring"
-              style={{ color: colors.text.secondary }}
-            >
-              <ChevronDown
-                className={`w-3 h-3 transition-transform ${isCommitsExpanded ? '' : '-rotate-90'}`}
-                style={{ color: colors.text.muted }}
-              />
-              <span>Commits</span>
-            </button>
-          </div>
-
-          <div style={{ borderTop: `1px solid ${colors.border}` }} />
-
-          {isCommitsExpanded && (
-            <div className="max-h-48 overflow-y-auto">
-              <CommitList
-                commits={commits}
-                selectedCommitHash={selectedCommitHash}
-                isWorkingTreeSelected={isWorkingTreeSelected}
-                onCommitSelect={handleCommitSelect}
-              />
-            </div>
-          )}
-
-          <div style={{ borderTop: `1px solid ${colors.border}` }} />
-
-          <div style={{ backgroundColor: colors.bg.secondary }}>
-            <div className="flex items-center justify-between px-3 py-2">
-              <div
-                className="text-xs font-medium"
-                style={{ color: colors.text.secondary }}
-              >
-                Commit staged
-              </div>
-              <button
-                type="button"
-                onClick={() => onCommitUncommittedChanges?.()}
-                disabled={Boolean(isCommitDisabled) || stagedFileCount === 0}
-                className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                style={{ color: colors.accent }}
-                title="Commit staged only"
-              >
-                <GitCommit className="w-3 h-3" />
-                AI Commit
-              </button>
-            </div>
-          </div>
-
-          <div style={{ borderTop: `1px solid ${colors.border}` }} />
-        </div>
-
-        <div className="flex-1 flex flex-col min-h-0">
+        {/* 1. Changes Section (max-height with scroll) */}
+        <div className="flex flex-col min-h-0 max-h-[50%]">
           <div
             style={{
               backgroundColor: colors.bg.secondary,
@@ -441,7 +344,6 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                           backgroundColor: colors.bg.hover,
                           border: `1px solid ${colors.border}`,
                         }}
-                        title="Stage all"
                       >
                         Stage All
                       </button>
@@ -457,11 +359,21 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                           backgroundColor: colors.bg.hover,
                           border: `1px solid ${colors.border}`,
                         }}
-                        title="Unstage all"
                       >
                         Unstage All
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => onCommitUncommittedChanges?.()}
+                      disabled={Boolean(isCommitDisabled) || stagedFileCount === 0}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                      style={{ color: colors.accent }}
+                      data-testid="right-panel-commit"
+                    >
+                      <GitCommit className="w-3 h-3" />
+                      Commit
+                    </button>
                   </div>
                 )}
                 {selectedCommit && (
@@ -543,6 +455,114 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
           </div>
         </div>
 
+        {/* 2. Commits Section (flex-shrink-0) */}
+        <div
+          className="flex-shrink-0"
+          style={{ borderTop: `1px solid ${colors.border}` }}
+        >
+          <div
+            className="flex items-center justify-between px-3 py-2"
+            style={{ backgroundColor: colors.bg.secondary }}
+          >
+            <button
+              type="button"
+              onClick={() => setIsCommitsExpanded(!isCommitsExpanded)}
+              className="flex items-center gap-1.5 text-xs font-medium transition-all duration-75 px-1.5 py-0.5 -ml-1.5 rounded st-hoverable st-focus-ring"
+              style={{ color: colors.text.secondary }}
+            >
+              <ChevronDown
+                className={`w-3 h-3 transition-transform ${isCommitsExpanded ? '' : '-rotate-90'}`}
+                style={{ color: colors.text.muted }}
+              />
+              <span>Commits</span>
+            </button>
+          </div>
+
+          {isCommitsExpanded && (
+            <div className="max-h-48 overflow-y-auto">
+              <CommitList
+                commits={commits}
+                selectedCommitHash={selectedCommitHash}
+                isWorkingTreeSelected={isWorkingTreeSelected}
+                onCommitSelect={handleCommitSelect}
+                onBaseCommitOpenGitHub={handleBaseCommitOpenGitHub}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* 3. PR Section (flex-shrink-0) */}
+        <div
+          className="flex-shrink-0"
+          style={{
+            borderTop: `1px solid ${colors.border}`,
+            backgroundColor: colors.bg.secondary,
+          }}
+        >
+          <div className="flex items-center justify-between px-3 py-2">
+            <div
+              className="text-xs font-medium"
+              style={{ color: colors.text.secondary }}
+            >
+              PR
+            </div>
+            <div className="flex items-center gap-1">
+              {remotePullRequest?.number && remotePullRequest.url && (
+                <button
+                  type="button"
+                  onClick={handleOpenRemotePullRequest}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring"
+                  style={{ color: colors.accent }}
+                  data-testid="right-panel-open-remote-pr"
+                >
+                  <GitPullRequest className="w-3 h-3" />
+                  PR #{remotePullRequest.number}
+                  {remotePullRequest.merged && (
+                    <span
+                      className="flex items-center gap-0.5 ml-1 px-1.5 py-0.5 rounded text-[9px] font-medium"
+                      style={{
+                        backgroundColor: colors.text.added,
+                        color: '#fff',
+                      }}
+                    >
+                      <Check className="w-2.5 h-2.5" />
+                      merged
+                    </span>
+                  )}
+                </button>
+              )}
+              {onPushPR && (
+                <button
+                  type="button"
+                  onClick={onPushPR}
+                  disabled={isPushPRDisabled || isDisabled || remotePullRequest?.merged || !hasSessionCommits}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                  style={{ color: colors.accent }}
+                  data-testid="right-panel-sync-remote-pr"
+                >
+                  <GitPullRequest className="w-3 h-3" />
+                  Sync
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={refresh}
+                disabled={isDisabled}
+                className="p-1.5 rounded transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+              >
+                <RefreshCw
+                  className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`}
+                  style={{ color: colors.text.muted }}
+                />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Spacer to push footer to bottom */}
+        <div className="flex-1" />
+
+        {/* 4. Footer (flex-shrink-0) */}
         <div
           className="flex-shrink-0 px-3 py-2"
           style={{
@@ -560,7 +580,6 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                     disabled={updateDownloading}
                     className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
                     style={{ color: colors.accent }}
-                    title={`Download update v${updateVersion}`}
                   >
                     {updateDownloading ? (
                       <RotateCw className="w-3 h-3 animate-spin" />
@@ -576,7 +595,6 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                     disabled={updateInstalling}
                     className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring"
                     style={{ color: colors.accent }}
-                    title={`Restart to install v${updateVersion}`}
                   >
                     {updateInstalling ? (
                       <RotateCw className="w-3 h-3 animate-spin" />
@@ -592,7 +610,6 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
               onClick={handleOpenReleases}
               className="ml-auto text-[10px] font-mono truncate st-hoverable st-focus-ring px-1.5 py-0.5 rounded"
               style={{ color: colors.text.muted }}
-              title="Open GitHub Releases"
             >
               {appVersion ? `snowtree v${appVersion}` : 'snowtree'}
             </button>

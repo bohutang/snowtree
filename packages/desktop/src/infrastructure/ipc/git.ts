@@ -3,7 +3,26 @@ import type { AppServices } from './types';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 
-type RemotePullRequest = { number: number; url: string };
+type RemotePullRequest = { number: number; url: string; merged: boolean };
+
+/**
+ * Parse a git remote URL and return the GitHub web URL for the repository.
+ * Supports SSH (git@github.com:owner/repo.git) and HTTPS (https://github.com/owner/repo.git) formats.
+ */
+function parseGitRemoteToGitHubUrl(remoteUrl: string): string | null {
+  const trimmed = remoteUrl.trim();
+  // SSH format: git@github.com:owner/repo.git
+  const sshMatch = trimmed.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/);
+  if (sshMatch) {
+    return `https://github.com/${sshMatch[1]}/${sshMatch[2]}`;
+  }
+  // HTTPS format: https://github.com/owner/repo.git
+  const httpsMatch = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/(.+?)(?:\.git)?$/);
+  if (httpsMatch) {
+    return `https://github.com/${httpsMatch[1]}/${httpsMatch[2]}`;
+  }
+  return null;
+}
 
 export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): void {
   const { sessionManager, gitDiffManager, gitStagingManager, gitStatusManager, gitExecutor } = services;
@@ -206,7 +225,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       const res = await gitExecutor.run({
         sessionId,
         cwd: session.worktreePath,
-        argv: ['gh', 'pr', 'view', '--json', 'number,url'],
+        argv: ['gh', 'pr', 'view', '--json', 'number,url,state'],
         op: 'read',
         recordTimeline: false,
         throwOnError: false,
@@ -220,11 +239,13 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       if (!raw) return { success: true, data: null };
 
       try {
-        const parsed = JSON.parse(raw) as { number?: unknown; url?: unknown } | null;
+        const parsed = JSON.parse(raw) as { number?: unknown; url?: unknown; state?: unknown } | null;
         const number = parsed && typeof parsed.number === 'number' ? parsed.number : null;
         const url = parsed && typeof parsed.url === 'string' ? parsed.url : '';
+        const state = parsed && typeof parsed.state === 'string' ? parsed.state : '';
+        const merged = state === 'MERGED';
         if (!number || !url) return { success: true, data: null };
-        const out: RemotePullRequest = { number, url };
+        const out: RemotePullRequest = { number, url, merged };
         return { success: true, data: out };
       } catch {
         return { success: true, data: null };
@@ -439,6 +460,45 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       return { success: true, data: { content } };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to read file content' };
+    }
+  });
+
+  ipcMain.handle('sessions:get-commit-github-url', async (_event, sessionId: string, options: {
+    commitHash: string;
+  }) => {
+    try {
+      const session = sessionManager.getSession(sessionId);
+      if (!session?.worktreePath) {
+        return { success: false, error: 'Session worktree not found' };
+      }
+
+      const commitHash = typeof options?.commitHash === 'string' ? options.commitHash.trim() : '';
+      if (!commitHash) return { success: false, error: 'Commit hash is required' };
+
+      // Get the remote origin URL
+      const result = await gitExecutor.run({
+        sessionId,
+        cwd: session.worktreePath,
+        argv: ['git', 'config', '--get', 'remote.origin.url'],
+        op: 'read',
+        recordTimeline: false,
+        meta: { source: 'ipc.git', operation: 'get-remote-url' },
+        timeoutMs: 5_000,
+      });
+
+      if (result.exitCode !== 0 || !result.stdout.trim()) {
+        return { success: false, error: 'No remote origin configured' };
+      }
+
+      const gitHubBaseUrl = parseGitRemoteToGitHubUrl(result.stdout);
+      if (!gitHubBaseUrl) {
+        return { success: false, error: 'Remote is not a GitHub repository' };
+      }
+
+      const url = `${gitHubBaseUrl}/commit/${commitHash}`;
+      return { success: true, data: { url } };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to get commit GitHub URL' };
     }
   });
 }

@@ -52,6 +52,7 @@ export type ExecutionDTO = {
 export type RemotePullRequestDTO = {
   number: number;
   url: string;
+  merged: boolean;
 };
 
 export interface ElectronAPI {
@@ -115,6 +116,7 @@ export interface ElectronAPI {
     changeAllStage: (sessionId: string, options: { stage: boolean }) => Promise<IPCResponse<{ success: boolean; error?: string }>>;
     changeFileStage: (sessionId: string, options: { filePath: string; stage: boolean }) => Promise<IPCResponse<{ success: boolean; error?: string }>>;
     restoreFile: (sessionId: string, options: { filePath: string }) => Promise<IPCResponse<{ success: boolean; error?: string }>>;
+    getCommitGithubUrl: (sessionId: string, options: { commitHash: string }) => Promise<IPCResponse<{ url: string }>>;
   };
 
   panels: {

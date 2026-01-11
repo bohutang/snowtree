@@ -49,6 +49,7 @@ export interface CommitItemProps {
   isSelected: boolean;
   badge?: string;
   onClick: () => void;
+  isClickable?: boolean;
 }
 
 export interface StackConnectorProps {

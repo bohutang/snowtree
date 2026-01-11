@@ -29,6 +29,7 @@ export interface WorkingTreeDiffs {
 export interface RemotePullRequest {
   number: number;
   url: string;
+  merged: boolean;
 }
 
 export type Selection =
@@ -228,10 +229,11 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
       );
       if (signal.aborted) return null;
       if (response.success && response.data && typeof response.data === 'object') {
-        const pr = response.data as { number?: unknown; url?: unknown } | null;
+        const pr = response.data as { number?: unknown; url?: unknown; merged?: unknown } | null;
         const number = pr && typeof pr.number === 'number' ? pr.number : null;
         const url = pr && typeof pr.url === 'string' ? pr.url : '';
-        if (number && url) return { number, url };
+        const merged = pr && typeof pr.merged === 'boolean' ? pr.merged : false;
+        if (number && url) return { number, url, merged };
       }
       return null;
     } catch {
