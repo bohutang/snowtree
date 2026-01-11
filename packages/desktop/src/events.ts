@@ -100,12 +100,19 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
       const meta = (entry.metadata || {}) as Record<string, unknown>;
       const panelId = typeof meta.panelId === 'string' ? meta.panelId : undefined;
       const sessionId = typeof meta.sessionId === 'string' ? meta.sessionId : undefined;
-      if (!panelId || !sessionId) return;
+      if (!panelId || !sessionId) {
+        console.log('[events.ts] Entry missing panelId or sessionId:', entry.entryType, { panelId, sessionId });
+        return;
+      }
 
       if (entry.entryType === 'assistant_message') {
         const content = typeof entry.content === 'string' ? entry.content : '';
-        if (!content.trim()) return;
+        if (!content.trim()) {
+          console.log('[events.ts] Skipping empty assistant_message');
+          return;
+        }
         const isStreaming = Boolean((meta as { streaming?: unknown }).streaming);
+        console.log('[events.ts] assistant_message:', { isStreaming, contentLen: content.length, panelId: panelId.slice(0, 8) });
 
         if (isStreaming) {
           streamingAssistantBufferByPanel.set(panelId, content);
@@ -114,6 +121,7 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
               pendingStreamFlushByPanel.delete(panelId);
               const latest = streamingAssistantBufferByPanel.get(panelId);
               if (!latest || !latest.trim()) return;
+              console.log('[events.ts] Sending assistant:stream to UI, contentLen:', latest.length);
               send('assistant:stream', { sessionId, panelId, content: latest });
             }, 48);
             pendingStreamFlushByPanel.set(panelId, t);
@@ -128,7 +136,7 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
         try {
           sessionManager.addPanelConversationMessage(panelId, 'assistant', content);
         } catch {
-          // best-effort; never break execution
+          // best-effort
         }
         return;
       }

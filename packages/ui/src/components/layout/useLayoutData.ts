@@ -15,7 +15,7 @@ interface UseLayoutDataResult {
   loadError: string | null;
   reload: () => void;
   setSelectedTool: (tool: CLITool) => void;
-  sendMessage: (message: string, images?: ImageAttachment[]) => Promise<void>;
+  sendMessage: (message: string, images?: ImageAttachment[], planMode?: boolean) => Promise<void>;
   sendMessageToTool: (tool: CLITool, message: string, options?: { skipCheckpointAutoCommit?: boolean }) => Promise<void>;
   cancelRequest: () => Promise<void>;
 }
@@ -184,7 +184,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     return panelToUse;
   }, [session, aiPanel]);
 
-  const sendMessage = useCallback(async (message: string, images?: ImageAttachment[]) => {
+  const sendMessage = useCallback(async (message: string, images?: ImageAttachment[], planMode?: boolean) => {
     if (!session) return;
 
     setIsProcessing(true);
@@ -199,7 +199,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
         return;
       }
 
-      await window.electronAPI?.panels?.continue(panelToUse.id, message, undefined, undefined, images);
+      await window.electronAPI?.panels?.continue(panelToUse.id, message, undefined, { planMode }, images);
     } catch (error) {
       console.error('Failed to send message:', error);
       setIsProcessing(false);

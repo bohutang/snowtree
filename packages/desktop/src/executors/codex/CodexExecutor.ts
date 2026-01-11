@@ -638,10 +638,13 @@ export class CodexExecutor extends AbstractExecutor {
     // Initialize connection
     await this.initialize(panelId);
 
+    // Plan mode - use read-only sandbox to prevent code modifications
+    const sandbox = options.planMode ? 'read-only' : codexOptions.sandbox;
+
     const overrides = {
       cwd: worktreePath,
       model: codexOptions.model,
-      sandbox: codexOptions.sandbox,
+      sandbox,
       approvalPolicy: codexOptions.askForApproval,
     };
 

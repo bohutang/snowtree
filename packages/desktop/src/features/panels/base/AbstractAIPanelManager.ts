@@ -286,7 +286,59 @@ export abstract class AbstractAIPanelManager {
     }
 
     this.logger?.info(`[${this.getAgentName()}PanelManager] Answering question for panel ${panelId}`);
-    await this.executor.answerQuestion(panelId, answers);
+
+    // Check if process is still running
+    if (this.executor.isRunning(panelId)) {
+      // Process still alive - write answer to stdin
+      await this.executor.answerQuestion(panelId, answers);
+    } else {
+      // Process has exited - need to resume session with the answer
+      this.logger?.info(`[${this.getAgentName()}PanelManager] Process not running, resuming session with answer`);
+
+      // Update timeline event to 'answered' status
+      await this.executor.updateQuestionStatus(panelId, mapping.sessionId, answers);
+
+      // Get the session's worktree path
+      const session = this.sessionManager.getSession(mapping.sessionId);
+      if (!session?.worktreePath) {
+        throw new Error(`Session ${mapping.sessionId} has no worktree path`);
+      }
+
+      // Format answers as a readable response for Claude
+      const answerText = this.formatAnswersForPrompt(answers);
+
+      // Build config with required fields for extractSpawnOptions
+      const config: AIPanelConfig = {
+        ...mapping.config,
+        prompt: answerText,
+        worktreePath: session.worktreePath,
+      };
+
+      // Resume the session with the answer
+      const spawnOptions: ExecutorSpawnOptions = {
+        panelId,
+        sessionId: mapping.sessionId,
+        worktreePath: session.worktreePath,
+        prompt: answerText,
+        isResume: true,
+        agentSessionId: mapping.agentSessionId,
+        ...this.extractSpawnOptions(config, mapping)
+      };
+
+      await this.executor.spawn(spawnOptions);
+    }
+  }
+
+  /**
+   * Format answers into a prompt string for resuming the session
+   */
+  protected formatAnswersForPrompt(answers: Record<string, string | string[]>): string {
+    const parts: string[] = [];
+    for (const [key, value] of Object.entries(answers)) {
+      const displayValue = Array.isArray(value) ? value.join(', ') : value;
+      parts.push(`${key}: ${displayValue}`);
+    }
+    return parts.join('\n');
   }
 
   /**

@@ -1170,6 +1170,7 @@ export class SessionManager extends EventEmitter {
 
     try {
       const panel = this.db.getPanel(panelId);
+      console.log('[SessionManager] addPanelConversationMessage:', { panelId, messageType, hasPanel: !!panel, sessionId: panel?.sessionId });
       if (panel?.sessionId) {
         this.addTimelineEvent({
           session_id: panel.sessionId,
@@ -1178,6 +1179,9 @@ export class SessionManager extends EventEmitter {
           command: content,
           tool: panel.type
         });
+        console.log('[SessionManager] Timeline event added for', messageType);
+      } else {
+        console.warn('[SessionManager] No sessionId for panel, timeline event not added');
       }
     } catch (e) {
       console.warn('[SessionManager] Failed to record timeline chat event:', e);

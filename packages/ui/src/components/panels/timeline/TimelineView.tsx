@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { API } from '../../../utils/api';
 import { withTimeout } from '../../../utils/withTimeout';
-import type { TimelineEvent } from '../../../types/timeline';
+import type { TimelineEvent, UserQuestionEvent } from '../../../types/timeline';
 import type { Session } from '../../../types/session';
 import { formatDistanceToNow, parseTimestamp } from '../../../utils/timestampUtils';
 import { ThinkingMessage } from './ThinkingMessage';
@@ -77,7 +77,7 @@ type TimelineItem =
   | { type: 'agentResponse'; seq: number; timestamp: string; endTimestamp: string; status: 'running' | 'done' | 'error' | 'interrupted'; messages: Array<{ content: string; timestamp: string }>; commands: CommandInfo[] }
   | { type: 'thinking'; seq: number; timestamp: string; content: string; isStreaming?: boolean; tool?: string | null }
   | { type: 'toolCall'; seq: number; timestamp: string; toolName: string; toolInput?: string; toolResult?: string; isError?: boolean; exitCode?: number }
-  | { type: 'userQuestion'; seq: number; timestamp: string; toolUseId: string; questions: Question[]; status: 'pending' | 'answered'; answers?: Record<string, string | string[]> };
+  | { type: 'userQuestion'; seq: number; timestamp: string; toolUseId: string; panelId?: string; questions: Question[]; status: 'pending' | 'answered'; answers?: Record<string, string | string[]> };
 
 const getOperationId = (event: TimelineEvent) => {
   const id = event.meta?.operationId;
@@ -111,11 +111,13 @@ const buildItems = (
     | { type: 'command'; seq: number; timestamp: string; kind: 'cli' | 'git' | 'worktree'; status?: TimelineEvent['status']; command: string; cwd?: string; durationMs?: number; exitCode?: number; tool?: string; meta?: Record<string, unknown> }
     | { type: 'thinking'; seq: number; timestamp: string; content: string; isStreaming?: boolean; tool?: string | null }
     | { type: 'toolCall'; seq: number; timestamp: string; toolName: string; toolInput?: string; toolResult?: string; isError?: boolean; exitCode?: number }
-    | { type: 'userQuestion'; seq: number; timestamp: string; toolUseId: string; questions: Question[]; status: 'pending' | 'answered'; answers?: Record<string, string | string[]> };
+    | { type: 'userQuestion'; seq: number; timestamp: string; toolUseId: string; panelId?: string; questions: Question[]; status: 'pending' | 'answered'; answers?: Record<string, string | string[]> };
 
   const flat: FlatItem[] = [];
   const byOperation: Record<string, TimelineEvent[]> = {};
   const toolUsePairs = new Map<string, { useEvent?: TimelineEvent; resultEvent?: TimelineEvent }>();
+  // Track user_question events by tool_use_id to deduplicate (keep latest/answered status)
+  const userQuestionByToolUseId = new Map<string, UserQuestionEvent>();
 
   // First pass: collect events
   for (const event of events) {
@@ -158,20 +160,11 @@ const buildItems = (
       pair.resultEvent = event;
       toolUsePairs.set(toolUseId, pair);
     } else if (event.kind === 'user_question') {
-      try {
-        const questions = event.questions ? JSON.parse(event.questions) : [];
-        const answers = event.answers ? JSON.parse(event.answers) : undefined;
-        flat.push({
-          type: 'userQuestion',
-          seq: event.seq,
-          timestamp: event.timestamp,
-          toolUseId: event.tool_use_id || '',
-          questions,
-          status: event.status === 'answered' ? 'answered' : 'pending',
-          answers
-        });
-      } catch {
-        // Ignore malformed user_question events
+      // Deduplicate user_question events by tool_use_id - prefer 'answered' status or latest
+      const toolUseId = event.tool_use_id || '';
+      const existing = userQuestionByToolUseId.get(toolUseId);
+      if (!existing || event.status === 'answered' || event.seq > existing.seq) {
+        userQuestionByToolUseId.set(toolUseId, event);
       }
     } else if (event.kind === 'cli.command' || event.kind === 'git.command' || event.kind === 'worktree.command') {
       flat.push({
@@ -187,6 +180,26 @@ const buildItems = (
         tool: event.tool,
         meta: event.meta
       });
+    }
+  }
+
+  // Add deduplicated user_question events to flat array
+  for (const event of userQuestionByToolUseId.values()) {
+    try {
+      const questions = event.questions ? JSON.parse(event.questions) : [];
+      const answers = event.answers ? JSON.parse(event.answers) : undefined;
+      flat.push({
+        type: 'userQuestion',
+        seq: event.seq,
+        timestamp: event.timestamp,
+        toolUseId: event.tool_use_id || '',
+        panelId: event.panel_id,
+        questions,
+        status: event.status === 'answered' ? 'answered' : 'pending',
+        answers
+      });
+    } catch {
+      // Ignore malformed user_question events
     }
   }
 
@@ -594,6 +607,7 @@ export const TimelineView: React.FC<{
   const idsRef = useRef(new Set<number>());
   const requestIdRef = useRef(0);
   const [streamingAssistant, setStreamingAssistant] = useState<{ content: string; timestamp: string } | null>(null);
+  const [dismissedQuestionIds, setDismissedQuestionIds] = useState<Set<string>>(new Set());
 
   const isAtBottom = useCallback((container: HTMLDivElement) => {
     const thresholdPx = 240;
@@ -648,9 +662,7 @@ export const TimelineView: React.FC<{
       if (data.sessionId !== sessionId) return;
       const event = data.event as TimelineEvent | undefined;
       if (!event) return;
-      if (event.kind === 'chat.assistant') {
-        setStreamingAssistant(null);
-      }
+      // Streaming is cleared in a separate effect that checks timeline items
       const already = idsRef.current.has(event.id);
       idsRef.current.add(event.id);
       setEvents((prev) => {
@@ -676,13 +688,18 @@ export const TimelineView: React.FC<{
   }, [sessionId]);
 
   useEffect(() => {
-    const unsub = window.electronAPI?.events?.onAssistantStream?.((data) => {
+    const api = window.electronAPI;
+    if (!api?.events?.onAssistantStream) return;
+
+    const unsub = api.events.onAssistantStream((data) => {
       if (!data || data.sessionId !== sessionId) return;
       const content = (data.content || '').trim();
       if (!content) return;
       setStreamingAssistant({ content, timestamp: new Date().toISOString() });
     });
-    return () => { if (unsub) unsub(); };
+    return () => {
+      if (unsub) unsub();
+    };
   }, [sessionId]);
 
   useLayoutEffect(() => {
@@ -732,7 +749,49 @@ export const TimelineView: React.FC<{
     setHasNew(true);
   }, [events.length, pendingMessage]);
 
-  const items = useMemo(() => buildItems(events, session.toolType, session.status), [events, session.toolType, session.status]);
+  const items = useMemo(() => {
+    return buildItems(events, session.toolType, session.status);
+  }, [events, session.toolType, session.status]);
+
+  // Clear streaming when a new timeline assistant message arrives that contains the streaming content
+  useEffect(() => {
+    if (!streamingAssistant) return;
+
+    const streamingContent = streamingAssistant.content;
+    const streamingTimestamp = streamingAssistant.timestamp;
+
+    // Only check the most recent item
+    for (let i = items.length - 1; i >= 0 && i >= items.length - 2; i--) {
+      const item = items[i];
+      if (item.type === 'agentResponse' && item.messages.length > 0) {
+        const lastMsg = item.messages[item.messages.length - 1];
+        // Only clear if:
+        // 1. The timeline message is at least as long as streaming (covers the content)
+        // 2. AND the timeline message arrived after streaming started (newer timestamp)
+        // 3. OR the timeline message contains the streaming content (substring match)
+        const timelineTimestamp = item.timestamp;
+        const isNewer = timelineTimestamp >= streamingTimestamp;
+        const isLonger = lastMsg.content.length >= streamingContent.length * 0.9;
+        const containsContent = streamingContent.length > 50 && lastMsg.content.includes(streamingContent.slice(0, 50));
+
+        if (isNewer && (isLonger || containsContent)) {
+          setStreamingAssistant(null);
+          return;
+        }
+      }
+    }
+  }, [items, streamingAssistant]);
+
+  // Clear streaming when session is no longer running/initializing (fallback safety)
+  useEffect(() => {
+    if (!streamingAssistant) return;
+    if (session.status !== 'running' && session.status !== 'initializing') {
+      const timer = setTimeout(() => {
+        setStreamingAssistant(null);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [session.status, streamingAssistant]);
 
   // Group items by time for separators
   const itemsWithSeparators = useMemo(() => {
@@ -764,6 +823,22 @@ export const TimelineView: React.FC<{
     }
     return pendingMessage;
   }, [pendingMessage, items]);
+
+  // Extract pending user question from timeline - to render outside scrollbox
+  // Filter out questions that user has temporarily dismissed with ESC
+  const pendingQuestion = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (item.type === 'userQuestion' && item.status === 'pending') {
+        // Skip if user dismissed this question
+        if (dismissedQuestionIds.has(item.toolUseId)) {
+          continue;
+        }
+        return item;
+      }
+    }
+    return null;
+  }, [items, dismissedQuestionIds]);
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: colors.bg }}>
@@ -829,21 +904,8 @@ export const TimelineView: React.FC<{
 
               if (timelineItem.type === 'userQuestion') {
                 if (timelineItem.status === 'pending') {
-                  return (
-                    <UserQuestionDialog
-                      key={`question-${timelineItem.seq}`}
-                      questions={timelineItem.questions}
-                      onSubmit={(answers) => {
-                        const panelId = session.id;
-                        const panelType = session.toolType === 'codex' ? 'codex' : 'claude';
-                        window.electronAPI.panels
-                          .answerQuestion(panelId, panelType, answers)
-                          .catch((error: unknown) => {
-                            console.error('Failed to answer question:', error);
-                          });
-                      }}
-                    />
-                  );
+                  // Skip pending questions - they are rendered outside scrollbox
+                  return null;
                 } else {
                   // Answered question - display as historical record
                   return (
@@ -892,15 +954,15 @@ export const TimelineView: React.FC<{
             })}
 
             {streamingAssistant && (
-              <div className="space-y-2">
-                <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: colors.text.primary }}>
-                  {streamingAssistant.content}
+              <div className="agent-response-container">
+                <div className="markdown-content text-sm leading-relaxed" style={{ color: colors.text.primary }}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {streamingAssistant.content}
+                  </ReactMarkdown>
                 </div>
-                <div className="flex items-center gap-2 text-xs" style={{ color: colors.text.muted }}>
+                <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: colors.text.muted }}>
                   <Spinner />
-                  <span>Thinking...</span>
-                  <span className="opacity-40">·</span>
-                  <span className="opacity-60">Press Esc to cancel</span>
+                  <span>Responding...</span>
                 </div>
               </div>
             )}
@@ -951,6 +1013,35 @@ export const TimelineView: React.FC<{
 
         <div ref={endRef} />
       </div>
+
+      {/* Pending user question - rendered outside scrollbox for direct keyboard access */}
+      {pendingQuestion && (
+        <div className="flex-shrink-0 px-4">
+          <div className="mx-auto max-w-[800px]">
+            <UserQuestionDialog
+              questions={pendingQuestion.questions}
+              onSubmit={(answers) => {
+                const panelId = pendingQuestion.panelId;
+                if (!panelId) {
+                  console.error('Failed to answer question: panelId not found in pending question');
+                  return;
+                }
+                const panelType = session.toolType === 'codex' ? 'codex' : 'claude';
+                window.electronAPI.panels
+                  .answerQuestion(panelId, panelType, answers)
+                  .catch((error: unknown) => {
+                    console.error('Failed to answer question:', error);
+                  });
+              }}
+              onCancel={() => {
+                if (pendingQuestion) {
+                  setDismissedQuestionIds(prev => new Set(prev).add(pendingQuestion.toolUseId));
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {!loading && !error && items.length === 0 && !pendingMessage && (
         <div className="flex items-center justify-center py-10 text-[12px]" style={{ color: colors.text.muted }}>

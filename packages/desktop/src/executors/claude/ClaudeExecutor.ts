@@ -103,9 +103,16 @@ export class ClaudeExecutor extends AbstractExecutor {
       '--include-partial-messages',
     ];
 
-    const permissionMode = typeof options.permissionMode === 'string'
-      ? options.permissionMode
-      : 'bypassPermissions';
+    // Plan mode uses --permission-mode plan to prevent code modifications
+    // Otherwise use the specified permission mode or default to bypassPermissions
+    let permissionMode: string;
+    if (options.planMode) {
+      permissionMode = 'plan';
+    } else if (typeof options.permissionMode === 'string') {
+      permissionMode = options.permissionMode;
+    } else {
+      permissionMode = 'bypassPermissions';
+    }
     args.push('--permission-mode', permissionMode);
 
     if (typeof options.model === 'string' && options.model.trim()) {
@@ -164,6 +171,11 @@ export class ClaudeExecutor extends AbstractExecutor {
       // Try to parse as JSON
       const message = JSON.parse(trimmed) as ClaudeMessage;
 
+      // Log parsed message type for debugging
+      const msgType = message.type || 'unknown';
+      const stopReason = message.type === 'assistant' && message.message?.stop_reason;
+      cliLogger.info('Claude', panelId, `Parsed JSON: type=${msgType}, stop_reason=${stopReason || 'N/A'}`);
+
       // Extract session ID if available - emit for panel manager to handle
       if ('session_id' in message && message.session_id) {
         this.emit('agentSessionId', {
@@ -185,20 +197,36 @@ export class ClaudeExecutor extends AbstractExecutor {
       // Parse and emit normalized entry
       const entry = this.messageParser.parseMessage(message);
       if (entry) {
+        const meta = entry.metadata as Record<string, unknown> | undefined;
+        const isStreaming = meta?.streaming;
+        cliLogger.info('Claude', panelId, `Entry: ${entry.entryType}, streaming=${isStreaming}, contentLen=${typeof entry.content === 'string' ? entry.content.length : 0}`);
         this.handleNormalizedEntry(panelId, sessionId, entry);
+      }
+
+      // Extract and emit tool_use blocks from assistant messages
+      if (message.type === 'assistant' && message.message?.content) {
+        this.extractAndEmitToolCalls(message.message.content, panelId, sessionId);
+      }
+
+      // Extract and emit tool_result blocks from user messages
+      if (message.type === 'user' && message.message?.content) {
+        this.extractAndEmitToolResults(message.message.content, panelId, sessionId);
       }
 
       // Align session status semantics with Codex/Claude Code: per-turn completion
       // should transition the session out of "running" even if the process stays alive.
       if (message.type === 'result') {
+        const resultError = message.is_error ? (message.error || 'Claude error') : null;
+        cliLogger.info('Claude', panelId, `Result message: is_error=${message.is_error}, error=${resultError}`);
         if (message.is_error) {
-          this.sessionManager.updateSessionStatus(sessionId, 'error', message.error || 'Claude error');
+          this.sessionManager.updateSessionStatus(sessionId, 'error', resultError || 'Claude error');
         } else {
           this.sessionManager.updateSessionStatus(sessionId, 'waiting');
         }
       }
-    } catch {
-      // Not JSON, emit as stdout
+    } catch (parseError) {
+      // Not JSON, emit as stdout and log
+      cliLogger.info('Claude', panelId, `Non-JSON output: ${trimmed.slice(0, 200)}${trimmed.length > 200 ? '...' : ''}`);
       this.emit('output', {
         panelId,
         sessionId,
@@ -234,6 +262,91 @@ export class ClaudeExecutor extends AbstractExecutor {
 
     // Send message via stdin
     process.pty.write(message + '\n');
+  }
+
+  /**
+   * Extract tool_result blocks from user message content and emit them as tool_result entries
+   */
+  private extractAndEmitToolResults(
+    content: Array<{ type: string; [key: string]: unknown }>,
+    panelId: string,
+    sessionId: string
+  ): void {
+    for (const block of content) {
+      if (block.type === 'tool_result') {
+        const toolResultBlock = block as { type: 'tool_result'; tool_use_id: string; content: unknown; is_error?: boolean };
+        const toolUseId = toolResultBlock.tool_use_id;
+
+        cliLogger.info('Claude', panelId, `Extracted tool_result: tool_use_id=${toolUseId}, is_error=${toolResultBlock.is_error}`);
+
+        // Create tool_result message for the parser
+        const toolResultMessage = {
+          type: 'tool_result' as const,
+          tool_use_id: toolUseId,
+          result: toolResultBlock.content,
+          is_error: toolResultBlock.is_error,
+        };
+
+        const entry = this.messageParser.parseMessage(toolResultMessage);
+        if (entry) {
+          this.handleNormalizedEntry(panelId, sessionId, entry);
+        }
+      }
+    }
+  }
+
+  /**
+   * Extract tool_use blocks from assistant message content and emit them as tool_use entries
+   */
+  private extractAndEmitToolCalls(
+    content: Array<{ type: string; [key: string]: unknown }>,
+    panelId: string,
+    sessionId: string
+  ): void {
+    for (const block of content) {
+      if (block.type === 'tool_use') {
+        const toolUseBlock = block as { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> };
+        const toolName = toolUseBlock.name || 'unknown';
+        const input = toolUseBlock.input || {};
+
+        cliLogger.info('Claude', panelId, `Extracted tool_use: ${toolName}`);
+
+        // Special handling for AskUserQuestion - create timeline event and store pending question
+        if (toolName === 'AskUserQuestion') {
+          const questions = input.questions;
+          if (questions) {
+            // Create a user_question normalized entry and let handleNormalizedEntry process it
+            // This ensures pendingQuestions.set() is called correctly
+            const userQuestionEntry = {
+              id: toolUseBlock.id,
+              timestamp: new Date().toISOString(),
+              entryType: 'user_question' as const,
+              content: '',
+              metadata: {
+                tool_use_id: toolUseBlock.id,
+                questions,
+              },
+            };
+            this.handleNormalizedEntry(panelId, sessionId, userQuestionEntry);
+          }
+          continue; // Skip regular tool_use handling
+        }
+
+        // Regular tool_use handling for other tools
+        // Create and emit tool_use entry using the message parser
+        const toolUseMessage = {
+          type: 'tool_use' as const,
+          tool_name: toolName,
+          tool_use_id: toolUseBlock.id,  // Include tool_use_id for linking with tool_result
+          input,
+        };
+
+        const entry = this.messageParser.parseMessage(toolUseMessage);
+        if (entry) {
+          this.handleNormalizedEntry(panelId, sessionId, entry);
+        }
+      }
+    }
   }
 
   /**

@@ -48,8 +48,8 @@ export abstract class AbstractExecutor extends EventEmitter {
   protected availabilityCache: AvailabilityCache | null = null;
   protected readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
   private cliOperationByPanel = new Map<string, { operationId: string; startMs: number }>();
-  private pendingToolOpByPanel = new Map<string, Array<{ operationId: string; startMs: number; kind: 'git.command' | 'cli.command' }>>();
-  private pendingToolOpByPanelId = new Map<string, Map<string, { startMs: number; kind: 'git.command' | 'cli.command' }>>();
+  private pendingToolOpByPanel = new Map<string, Array<{ operationId: string; startMs: number; kind: 'git.command' | 'cli.command'; toolUseId?: string }>>();
+  private pendingToolOpByPanelId = new Map<string, Map<string, { startMs: number; kind: 'git.command' | 'cli.command'; operationId?: string }>>();
   protected runtimeMetaByPanel = new Map<string, { cliModel?: string; cliReasoningEffort?: string; cliSandbox?: string; cliAskForApproval?: string }>();
   private pendingQuestions = new Map<string, { toolUseId: string; questions: unknown }>();
   private activeThinkingByPanel = new Map<string, { seq: number; thinkingId: string }>();
@@ -354,8 +354,13 @@ export abstract class AbstractExecutor extends EventEmitter {
   /** Set up process event handlers */
   protected setupProcessHandlers(ptyProcess: pty.IPty, panelId: string, sessionId: string): void {
     let buffer = '';
+    let lineCount = 0;
 
     ptyProcess.onData((data: string) => {
+      // Log raw data for debugging (first 500 chars max)
+      const preview = data.length > 500 ? data.slice(0, 500) + '...' : data;
+      cliLogger.debug(this.getCliLogType(), panelId, `RAW data (${data.length} bytes): ${preview.replace(/\n/g, '\\n')}`);
+
       buffer += data;
 
       // Process complete lines
@@ -364,6 +369,8 @@ export abstract class AbstractExecutor extends EventEmitter {
 
       for (const line of lines) {
         if (line.trim()) {
+          lineCount++;
+          cliLogger.debug(this.getCliLogType(), panelId, `LINE ${lineCount}: ${line.slice(0, 200)}${line.length > 200 ? '...' : ''}`);
           this.parseOutput(line, panelId, sessionId);
         }
       }
@@ -396,6 +403,28 @@ export abstract class AbstractExecutor extends EventEmitter {
         });
         this.cliOperationByPanel.delete(panelId);
       }
+
+      // Clean up any pending tool operations that didn't get a result
+      // This happens when the process exits before tool_result messages arrive
+      const byId = this.pendingToolOpByPanelId.get(panelId);
+      if (byId && byId.size > 0) {
+        const isError = typeof exitCode === 'number' && exitCode !== 0;
+        for (const [toolUseId, toolOp] of byId.entries()) {
+          const durationMs = Date.now() - toolOp.startMs;
+          this.recordTimelineCommand({
+            sessionId,
+            panelId,
+            kind: toolOp.kind,
+            status: isError ? 'failed' : 'finished',
+            durationMs,
+            tool: this.getToolType(),
+            meta: { operationId: toolOp.operationId || toolUseId },
+          });
+        }
+        this.pendingToolOpByPanelId.delete(panelId);
+      }
+      this.pendingToolOpByPanel.delete(panelId);
+      this.activeThinkingByPanel.delete(panelId);
 
       this.emit('exit', { panelId, sessionId, exitCode, signal } as ExecutorExitEvent);
       cliLogger.info(this.getCliLogType(), panelId, `Process exited with code ${exitCode}`);
@@ -437,6 +466,8 @@ export abstract class AbstractExecutor extends EventEmitter {
     const action = enriched.actionType;
     if (enriched.entryType === 'tool_use' && action?.type) {
       const operationId = enriched.id || randomUUID();
+      // Use toolUseId from Claude's message for linking with tool_result
+      const toolUseId = enriched.toolUseId || operationId;
       const display = (enriched.content || '').trim();
       if (!display) return;
 
@@ -447,11 +478,12 @@ export abstract class AbstractExecutor extends EventEmitter {
 
       const startMs = Date.now();
       const stack = this.pendingToolOpByPanel.get(panelId) || [];
-      stack.push({ operationId, startMs, kind });
+      stack.push({ operationId, startMs, kind, toolUseId });
       this.pendingToolOpByPanel.set(panelId, stack);
 
+      // Use toolUseId as key for direct lookup by tool_result
       const byId = this.pendingToolOpByPanelId.get(panelId) || new Map();
-      byId.set(operationId, { startMs, kind });
+      byId.set(toolUseId, { startMs, kind, operationId });
       this.pendingToolOpByPanelId.set(panelId, byId);
 
       const cwd = this.sessionManager.getSession(sessionId)?.worktreePath;
@@ -516,26 +548,33 @@ export abstract class AbstractExecutor extends EventEmitter {
 
     // Handle tool_result for non-command tools (Read, Edit, Grep, etc.)
     if (enriched.entryType === 'tool_result' && enriched.toolStatus && enriched.toolStatus !== 'pending') {
+      // Use toolUseId from Claude's message to find the matching tool_use
+      const toolUseId = enriched.toolUseId;
       const byId = this.pendingToolOpByPanelId.get(panelId);
-      const opFromId = enriched.id && byId ? byId.get(enriched.id) : undefined;
-      if (enriched.id && byId) byId.delete(enriched.id);
+      const opFromId = toolUseId && byId ? byId.get(toolUseId) : undefined;
+      if (toolUseId && byId) byId.delete(toolUseId);
       if (byId && byId.size === 0) this.pendingToolOpByPanelId.delete(panelId);
 
       let kind: 'git.command' | 'cli.command' | undefined = opFromId?.kind;
       let startMs: number | undefined = opFromId?.startMs;
-      let operationId: string | undefined = enriched.id || undefined;
+      let operationId: string | undefined = opFromId?.operationId || enriched.id || undefined;
 
       if (!kind || !startMs) {
         const stack = this.pendingToolOpByPanel.get(panelId);
-        const last = stack?.pop();
+        // Try to find matching entry by toolUseId first
+        let matchIdx = -1;
+        if (toolUseId && stack) {
+          matchIdx = stack.findIndex(item => item.toolUseId === toolUseId);
+        }
+        const matched = matchIdx >= 0 ? stack?.splice(matchIdx, 1)[0] : stack?.pop();
         if (stack && stack.length === 0) this.pendingToolOpByPanel.delete(panelId);
-        if (!last) {
+        if (!matched) {
           // This is a non-command tool result (Read, Edit, Grep, etc.)
           // Record it as a tool_result event instead of command
           this.recordTimelineToolResult({
             sessionId,
             panelId,
-            toolUseId: enriched.id,
+            toolUseId: toolUseId || enriched.id,
             toolName: enriched.toolName,
             content: enriched.content,
             isError: enriched.toolStatus === 'failed',
@@ -543,9 +582,9 @@ export abstract class AbstractExecutor extends EventEmitter {
           });
           return;
         }
-        kind = last.kind;
-        startMs = last.startMs;
-        operationId = last.operationId;
+        kind = matched.kind;
+        startMs = matched.startMs;
+        operationId = matched.operationId;
       }
 
       if (!kind || !startMs) return;
@@ -624,7 +663,7 @@ export abstract class AbstractExecutor extends EventEmitter {
     }
   }
 
-  private recordTimelineUserQuestion(args: {
+  protected recordTimelineUserQuestion(args: {
     sessionId: string;
     panelId?: string;
     toolUseId: string;
@@ -731,22 +770,52 @@ export abstract class AbstractExecutor extends EventEmitter {
 
   /** Answer a pending user question (from AskUserQuestion tool) */
   async answerQuestion(panelId: string, answers: Record<string, string | string[]>): Promise<void> {
-    const pending = this.pendingQuestions.get(panelId);
-    if (!pending) {
-      throw new Error(`No pending question for panel ${panelId}`);
-    }
+    const tool = this.getCliLogType();
+    cliLogger.info(tool, panelId, `answerQuestion called with answers: ${JSON.stringify(answers)}`);
 
     const process = this.processes.get(panelId);
     if (!process) {
+      cliLogger.error(tool, panelId, `No process found for panel ${panelId}`);
       throw new Error(`No process found for panel ${panelId}`);
     }
 
+    // Try to get pending question from memory first
+    let pending = this.pendingQuestions.get(panelId);
+    cliLogger.info(tool, panelId, `Pending question from memory: ${pending ? 'found' : 'not found'}`);
+
+    // If not in memory, try to recover from database (e.g., after page refresh)
+    if (!pending) {
+      const timelineEvents = this.sessionManager.getTimelineEvents(process.sessionId);
+      // Find the most recent pending user_question for this panel
+      for (let i = timelineEvents.length - 1; i >= 0; i--) {
+        const event = timelineEvents[i];
+        if (event.kind === 'user_question' && event.panel_id === panelId && event.status === 'pending') {
+          pending = {
+            toolUseId: event.tool_use_id || '',
+            questions: event.questions,
+          };
+          cliLogger.info(tool, panelId, `Recovered pending question from database: toolUseId=${pending.toolUseId}`);
+          break;
+        }
+      }
+    }
+
+    if (!pending) {
+      cliLogger.error(tool, panelId, `No pending question for panel ${panelId}`);
+      throw new Error(`No pending question for panel ${panelId}`);
+    }
+
+    cliLogger.info(tool, panelId, `Processing answer for toolUseId: ${pending.toolUseId}`);
+
     // Construct tool_result message for the AskUserQuestion tool
+    // Format: answers directly as the content (not wrapped in {answers: ...})
     const toolResult = JSON.stringify({
       type: 'tool_result',
       tool_use_id: pending.toolUseId,
-      content: JSON.stringify({ answers }),
+      content: JSON.stringify(answers),
     });
+
+    cliLogger.info(tool, panelId, `Writing tool_result to CLI: ${toolResult}`);
 
     // Write to CLI stdin
     process.pty.write(toolResult + '\n');
@@ -762,8 +831,62 @@ export abstract class AbstractExecutor extends EventEmitter {
         status: 'answered',
         answers: JSON.stringify(answers),
       });
-    } catch {
-      // Best-effort audit log
+      cliLogger.info(tool, panelId, 'Timeline event updated to answered status');
+    } catch (err) {
+      cliLogger.error(tool, panelId, 'Failed to update timeline event', err instanceof Error ? err : undefined);
+    }
+
+    // Clean up
+    this.pendingQuestions.delete(panelId);
+    cliLogger.info(tool, panelId, 'answerQuestion completed successfully');
+  }
+
+  /**
+   * Update the question status in the timeline without requiring a running process.
+   * Used when the process has exited and we need to resume the session.
+   */
+  async updateQuestionStatus(panelId: string, sessionId: string, answers: Record<string, string | string[]>): Promise<void> {
+    const tool = this.getCliLogType();
+    cliLogger.info(tool, panelId, `updateQuestionStatus called for session ${sessionId}`);
+
+    // Try to get pending question from memory first
+    let pending = this.pendingQuestions.get(panelId);
+
+    // If not in memory, try to recover from database
+    if (!pending) {
+      const timelineEvents = this.sessionManager.getTimelineEvents(sessionId);
+      for (let i = timelineEvents.length - 1; i >= 0; i--) {
+        const event = timelineEvents[i];
+        if (event.kind === 'user_question' && event.panel_id === panelId && event.status === 'pending') {
+          pending = {
+            toolUseId: event.tool_use_id || '',
+            questions: event.questions,
+          };
+          cliLogger.info(tool, panelId, `Recovered pending question from database: toolUseId=${pending.toolUseId}`);
+          break;
+        }
+      }
+    }
+
+    if (!pending) {
+      cliLogger.info(tool, panelId, 'No pending question found, skipping timeline update');
+      return;
+    }
+
+    // Update Timeline status to 'answered'
+    try {
+      this.sessionManager.addTimelineEvent({
+        session_id: sessionId,
+        panel_id: panelId,
+        kind: 'user_question',
+        tool_use_id: pending.toolUseId,
+        questions: typeof pending.questions === 'string' ? pending.questions : JSON.stringify(pending.questions),
+        status: 'answered',
+        answers: JSON.stringify(answers),
+      });
+      cliLogger.info(tool, panelId, 'Timeline event updated to answered status');
+    } catch (err) {
+      cliLogger.error(tool, panelId, 'Failed to update timeline event', err instanceof Error ? err : undefined);
     }
 
     // Clean up
@@ -800,7 +923,7 @@ export abstract class AbstractExecutor extends EventEmitter {
 
     const byId = this.pendingToolOpByPanelId.get(panelId);
     if (byId) {
-      for (const [operationId, op] of byId.entries()) {
+      for (const [toolUseId, op] of byId.entries()) {
         const durationMs = Date.now() - op.startMs;
         this.recordTimelineCommand({
           sessionId,
@@ -809,7 +932,7 @@ export abstract class AbstractExecutor extends EventEmitter {
           status: 'failed',
           durationMs,
           tool: this.getToolType(),
-          meta: { operationId, ...terminationMeta },
+          meta: { operationId: op.operationId || toolUseId, ...terminationMeta },
         });
       }
       this.pendingToolOpByPanelId.delete(panelId);

@@ -24,6 +24,8 @@ export interface ExecutorSpawnOptions {
   sandbox?: string;
   askForApproval?: string;
   reasoningEffort?: string;
+  // Plan mode: only plan, don't execute code modifications
+  planMode?: boolean;
 }
 
 export interface ExecutorProcess {
@@ -116,12 +118,14 @@ export interface ClaudeUserMessage {
 export interface ClaudeToolUseMessage {
   type: 'tool_use';
   tool_name: string;
+  tool_use_id?: string;
   input: Record<string, unknown>;
   session_id?: string;
 }
 
 export interface ClaudeToolResultMessage {
   type: 'tool_result';
+  tool_use_id?: string;
   result: unknown;
   is_error?: boolean;
   session_id?: string;
@@ -251,6 +255,7 @@ export interface NormalizedEntry {
   metadata?: Record<string, unknown>;
   // Tool-specific fields
   toolName?: string;
+  toolUseId?: string;
   toolStatus?: 'pending' | 'success' | 'failed';
   actionType?: ActionType;
 }

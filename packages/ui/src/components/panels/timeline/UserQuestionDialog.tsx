@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import './UserQuestionDialog.css';
 
 export interface QuestionOption {
@@ -20,164 +20,354 @@ export interface UserQuestionDialogProps {
 }
 
 export function UserQuestionDialog({ questions, onSubmit, onCancel }: UserQuestionDialogProps) {
-  const [answers, setAnswers] = useState<Record<string, Set<string>>>({});
+  const single = questions.length === 1 && questions[0]?.multiSelect !== true;
+  const tabs = single ? 1 : questions.length + 1; // questions + confirm tab
+
+  const [tab, setTab] = useState(0);
+  const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [customInput, setCustomInput] = useState<Record<string, string>>({});
+  const [selectedOption, setSelectedOption] = useState(0);
+  const [editingCustom, setEditingCustom] = useState(false);
 
-  const handleOptionToggle = (questionIdx: number, label: string, multiSelect: boolean) => {
-    const key = String(questionIdx);
-    const current = answers[key] || new Set();
+  const currentQuestion = questions[tab];
+  const isConfirmTab = !single && tab === questions.length;
+  const options = currentQuestion?.options ?? [];
+  const totalOptions = options.length + 1; // options + "Type your own answer"
+  const isOtherSelected = selectedOption === options.length;
+  const customValue = customInput[String(tab)] ?? '';
+  const isCustomPicked = customValue && answers[String(tab)]?.includes(customValue);
 
-    if (multiSelect) {
-      const updated = new Set(current);
-      if (updated.has(label)) {
-        updated.delete(label);
-      } else {
-        updated.add(label);
+  // Use refs to access latest values in keyboard handler without stale closures
+  const stateRef = useRef({
+    tab,
+    tabs,
+    single,
+    answers,
+    customInput,
+    selectedOption,
+    totalOptions,
+    editingCustom,
+    customValue,
+    isConfirmTab,
+    isOtherSelected,
+    isCustomPicked,
+    currentQuestion,
+    options,
+    questions,
+    onSubmit,
+    onCancel,
+  });
+
+  // Update ref on every render
+  stateRef.current = {
+    tab,
+    tabs,
+    single,
+    answers,
+    customInput,
+    selectedOption,
+    totalOptions,
+    editingCustom,
+    customValue,
+    isConfirmTab,
+    isOtherSelected,
+    isCustomPicked,
+    currentQuestion,
+    options,
+    questions,
+    onSubmit,
+    onCancel,
+  };
+
+  // Handle keyboard navigation
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    const state = stateRef.current;
+
+    // Only handle navigation keys to avoid interfering with text input
+    const navigationKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'h', 'l', 'j', 'k', 'Enter', 'Escape', 'Tab'];
+    if (!navigationKeys.includes(e.key)) return;
+
+    const pick = (answer: string, custom: boolean = false) => {
+      const key = String(state.tab);
+      const newAnswers = { ...state.answers, [key]: [answer] };
+      setAnswers(newAnswers);
+      if (custom) {
+        setCustomInput({ ...state.customInput, [key]: answer });
       }
-      setAnswers({ ...answers, [key]: updated });
-    } else {
-      setAnswers({ ...answers, [key]: new Set([label]) });
+      if (state.single) {
+        state.onSubmit({ 0: [answer] });
+        return;
+      }
+      setTab(state.tab + 1);
+      setSelectedOption(0);
+    };
+
+    const toggle = (answer: string) => {
+      const key = String(state.tab);
+      const existing = state.answers[key] ?? [];
+      const next = [...existing];
+      const index = next.indexOf(answer);
+      if (index === -1) next.push(answer);
+      else next.splice(index, 1);
+      setAnswers({ ...state.answers, [key]: next });
+    };
+
+    const submit = () => {
+      const result: Record<string, string | string[]> = {};
+      state.questions.forEach((q, idx) => {
+        const key = String(idx);
+        const selected = state.answers[key] ?? [];
+        result[key] = q.multiSelect ? selected : selected[0] || '';
+      });
+      state.onSubmit(result);
+    };
+
+    // Handle custom input editing
+    if (state.editingCustom && !state.isConfirmTab) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setEditingCustom(false);
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const text = state.customValue.trim();
+        const key = String(state.tab);
+        const prev = state.customInput[key];
+
+        if (!text) {
+          // Clear custom input
+          if (prev) {
+            setCustomInput({ ...state.customInput, [key]: '' });
+            setAnswers({
+              ...state.answers,
+              [key]: (state.answers[key] ?? []).filter(x => x !== prev)
+            });
+          }
+          setEditingCustom(false);
+          return;
+        }
+
+        if (state.currentQuestion?.multiSelect) {
+          setCustomInput({ ...state.customInput, [key]: text });
+          const existing = state.answers[key] ?? [];
+          const next = [...existing];
+          if (prev) {
+            const index = next.indexOf(prev);
+            if (index !== -1) next.splice(index, 1);
+          }
+          if (!next.includes(text)) next.push(text);
+          setAnswers({ ...state.answers, [key]: next });
+          setEditingCustom(false);
+          return;
+        }
+
+        // Single select - pick and move to next
+        pick(text, true);
+        setEditingCustom(false);
+        return;
+      }
+      // Let input handle other keys
+      return;
     }
-  };
 
-  const handleSubmit = () => {
-    const result: Record<string, string | string[]> = {};
+    // Tab navigation (Left/Right or H/L)
+    if (e.key === 'ArrowLeft' || e.key === 'h') {
+      e.preventDefault();
+      const next = (state.tab - 1 + state.tabs) % state.tabs;
+      setTab(next);
+      setSelectedOption(0);
+    }
 
-    questions.forEach((q, idx) => {
-      const key = String(idx);
-      const selected = Array.from(answers[key] || []);
+    if (e.key === 'ArrowRight' || e.key === 'l') {
+      e.preventDefault();
+      const next = (state.tab + 1) % state.tabs;
+      setTab(next);
+      setSelectedOption(0);
+    }
 
-      // If "Other" is selected, use custom input
-      if (selected.includes('Other') && customInput[key]) {
-        result[key] = customInput[key];
-      } else if (q.multiSelect) {
-        result[key] = selected.filter(s => s !== 'Other');
-      } else {
-        result[key] = selected.find(s => s !== 'Other') || '';
+    // Confirm tab
+    if (state.isConfirmTab) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        submit();
       }
-    });
-
-    onSubmit(result);
-  };
-
-  const canSubmit = () => {
-    return questions.every((_q, idx) => {
-      const key = String(idx);
-      const selected = answers[key];
-      if (!selected || selected.size === 0) return false;
-      // If "Other" is selected, ensure custom input is provided
-      if (selected.has('Other')) {
-        return customInput[key]?.trim().length > 0;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        state.onCancel?.();
       }
-      return true;
-    });
-  };
+      return;
+    }
+
+    // Option selection (Up/Down or J/K)
+    if (e.key === 'ArrowUp' || e.key === 'k') {
+      e.preventDefault();
+      setSelectedOption((state.selectedOption - 1 + state.totalOptions) % state.totalOptions);
+    }
+
+    if (e.key === 'ArrowDown' || e.key === 'j') {
+      e.preventDefault();
+      setSelectedOption((state.selectedOption + 1) % state.totalOptions);
+    }
+
+    // Enter to confirm selection
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (state.isOtherSelected) {
+        if (!state.currentQuestion?.multiSelect) {
+          setEditingCustom(true);
+          return;
+        }
+        const value = state.customValue;
+        if (value && state.isCustomPicked) {
+          toggle(value);
+          return;
+        }
+        setEditingCustom(true);
+        return;
+      }
+      const opt = state.options[state.selectedOption];
+      if (!opt) return;
+      if (state.currentQuestion?.multiSelect) {
+        toggle(opt.label);
+        return;
+      }
+      pick(opt.label);
+    }
+
+    // Escape to cancel
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      state.onCancel?.();
+    }
+  }, []);
+
+  useEffect(() => {
+    // Use capture: true to handle events before other handlers can intercept them
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+  }, [handleKeyDown]);
 
   return (
-    <div className="user-question-overlay">
-      <div className="user-question-dialog">
-        <div className="dialog-header">
-          <span className="dialog-icon">🤔</span>
-          <h3 className="dialog-title">AI needs your input</h3>
-        </div>
-
-        <div className="dialog-body">
-          {questions.map((q, qIdx) => (
-            <div key={qIdx} className="question-block">
-              <div className="question-header-badge">
-                <span className="question-badge">{q.header}</span>
+    <div className="user-question-inline">
+      {/* Tab headers (if multiple questions) */}
+      {!single && (
+        <div className="question-tabs">
+          {questions.map((q, index) => {
+            const isActive = index === tab;
+            const isAnswered = (answers[String(index)]?.length ?? 0) > 0;
+            return (
+              <div
+                key={index}
+                className={`tab ${isActive ? 'active' : ''} ${isAnswered ? 'answered' : ''}`}
+              >
+                {q.header}
               </div>
-              <p className="question-text">{q.question}</p>
+            );
+          })}
+          <div className={`tab ${isConfirmTab ? 'active' : ''}`}>
+            Confirm
+          </div>
+        </div>
+      )}
 
-              <div className="options-list">
-                {q.options.map((opt, optIdx) => {
-                  const isSelected = answers[String(qIdx)]?.has(opt.label);
-                  return (
-                    <div
-                      key={optIdx}
-                      className={`option ${isSelected ? 'selected' : ''}`}
-                      onClick={() => handleOptionToggle(qIdx, opt.label, q.multiSelect)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          handleOptionToggle(qIdx, opt.label, q.multiSelect);
-                        }
-                      }}
-                    >
-                      <div className="option-header">
-                        <input
-                          type={q.multiSelect ? 'checkbox' : 'radio'}
-                          checked={isSelected}
-                          onChange={() => {}} // Handled by div onClick
-                          onClick={(e) => e.stopPropagation()}
-                          tabIndex={-1}
-                        />
-                        <span className="option-label">{opt.label}</span>
-                      </div>
-                      <p className="option-description">{opt.description}</p>
-                    </div>
-                  );
-                })}
+      {/* Question content */}
+      {!isConfirmTab && currentQuestion && (
+        <div className="question-content">
+          <div className="question-text">
+            {currentQuestion.question}
+            {currentQuestion.multiSelect && ' (select all that apply)'}
+          </div>
 
-                {/* Automatic "Other" option */}
+          {/* Options list */}
+          <div className="options-list-tui">
+            {options.map((opt, i) => {
+              const isActive = i === selectedOption;
+              const isPicked = answers[String(tab)]?.includes(opt.label);
+              return (
                 <div
-                  className={`option ${answers[String(qIdx)]?.has('Other') ? 'selected' : ''}`}
-                  onClick={() => handleOptionToggle(qIdx, 'Other', q.multiSelect)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      handleOptionToggle(qIdx, 'Other', q.multiSelect);
-                    }
-                  }}
+                  key={i}
+                  className={`option-tui ${isActive ? 'active' : ''} ${isPicked ? 'picked' : ''}`}
                 >
-                  <div className="option-header">
-                    <input
-                      type={q.multiSelect ? 'checkbox' : 'radio'}
-                      checked={answers[String(qIdx)]?.has('Other')}
-                      onChange={() => {}} // Handled by div onClick
-                      onClick={(e) => e.stopPropagation()}
-                      tabIndex={-1}
-                    />
-                    <span className="option-label">Other</span>
+                  <div className="option-label">
+                    <span className="option-number">{i + 1}.</span>
+                    <span className="option-text">{opt.label}</span>
+                    {isPicked && <span className="check-mark">✓</span>}
                   </div>
-                  {answers[String(qIdx)]?.has('Other') && (
-                    <input
-                      type="text"
-                      placeholder="Please specify..."
-                      value={customInput[String(qIdx)] || ''}
-                      onChange={(e) =>
-                        setCustomInput({ ...customInput, [String(qIdx)]: e.target.value })
-                      }
-                      onClick={(e) => e.stopPropagation()}
-                      className="custom-input"
-                      autoFocus
-                    />
-                  )}
+                  <div className="option-description">{opt.description}</div>
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
+              );
+            })}
 
-        <div className="dialog-actions">
-          {onCancel && (
-            <button onClick={onCancel} className="cancel-btn" type="button">
-              Cancel
-            </button>
-          )}
-          <button
-            onClick={handleSubmit}
-            className="submit-btn"
-            disabled={!canSubmit()}
-            type="button"
-          >
-            Submit
-          </button>
+            {/* "Type your own answer" option */}
+            <div
+              className={`option-tui ${isOtherSelected ? 'active' : ''} ${isCustomPicked ? 'picked' : ''}`}
+            >
+              <div className="option-label">
+                <span className="option-number">{options.length + 1}.</span>
+                <span className="option-text">Type your own answer</span>
+                {isCustomPicked && <span className="check-mark">✓</span>}
+              </div>
+              {editingCustom && (
+                <div className="custom-input-container">
+                  <input
+                    type="text"
+                    className="custom-input-tui"
+                    placeholder="Type your own answer"
+                    value={customValue}
+                    onChange={(e) => setCustomInput({ ...customInput, [String(tab)]: e.target.value })}
+                    autoFocus
+                  />
+                </div>
+              )}
+              {!editingCustom && customValue && (
+                <div className="custom-value">{customValue}</div>
+              )}
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* Confirm/Review tab */}
+      {isConfirmTab && !single && (
+        <div className="question-content">
+          <div className="question-text">Review</div>
+          <div className="review-list">
+            {questions.map((q, index) => {
+              const value = answers[String(index)]?.join(', ') ?? '';
+              const answered = Boolean(value);
+              return (
+                <div key={index} className="review-item">
+                  <span className="review-label">{q.header}:</span>
+                  <span className={`review-value ${answered ? '' : 'unanswered'}`}>
+                    {answered ? value : '(not answered)'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Keyboard shortcuts help */}
+      <div className="keyboard-shortcuts">
+        {!isConfirmTab && (
+          <span className="shortcut">
+            <span className="key">↑↓</span> <span className="hint">select</span>
+          </span>
+        )}
+        <span className="shortcut">
+          <span className="key">enter</span>{' '}
+          <span className="hint">
+            {isConfirmTab ? 'submit' : currentQuestion?.multiSelect ? 'toggle' : single ? 'submit' : 'confirm'}
+          </span>
+        </span>
+        <span className="shortcut">
+          <span className="key">esc</span> <span className="hint">dismiss</span>
+        </span>
       </div>
     </div>
   );

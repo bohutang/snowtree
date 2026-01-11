@@ -2173,6 +2173,13 @@ export class DatabaseService {
       LIMIT 1
     `);
 
+    // Check if tool_use_id exists (for user_question status updates)
+    const findByToolUseId = this.db.prepare(`
+      SELECT id, seq FROM timeline_events
+      WHERE session_id = ? AND tool_use_id = ? AND kind = 'user_question'
+      LIMIT 1
+    `);
+
     const insert = this.db.prepare(`
       INSERT INTO timeline_events (
         session_id, seq, timestamp, kind, status, command, cwd, duration_ms, exit_code, panel_id, tool, meta_json,
@@ -2183,6 +2190,12 @@ export class DatabaseService {
     const updateThinking = this.db.prepare(`
       UPDATE timeline_events
       SET content = ?, is_streaming = ?, timestamp = ?
+      WHERE id = ?
+    `);
+
+    const updateUserQuestion = this.db.prepare(`
+      UPDATE timeline_events
+      SET status = ?, answers = ?, timestamp = ?
       WHERE id = ?
     `);
 
@@ -2289,7 +2302,77 @@ export class DatabaseService {
         // Fall through to INSERT if not found
       }
 
-      // Normal INSERT (or first INSERT for thinking)
+      // Handle user_question status updates (UPSERT by tool_use_id)
+      if (data.tool_use_id && data.kind === 'user_question') {
+        const existing = findByToolUseId.get(data.session_id, data.tool_use_id) as { id: number; seq: number } | undefined;
+
+        if (existing) {
+          // Update existing user_question event (e.g., pending -> answered)
+          updateUserQuestion.run(
+            data.status ?? null,
+            data.answers ?? null,
+            data.timestamp,
+            existing.id
+          );
+
+          const updated = select.get(existing.id) as {
+            id: number;
+            session_id: string;
+            seq: number;
+            timestamp: string;
+            kind: string;
+            status: string | null;
+            command: string | null;
+            cwd: string | null;
+            duration_ms: number | null;
+            exit_code: number | null;
+            panel_id: string | null;
+            tool: string | null;
+            meta_json: string | null;
+            tool_name: string | null;
+            tool_input: string | null;
+            tool_result: string | null;
+            is_error: number | null;
+            content: string | null;
+            is_streaming: number | null;
+            tool_use_id: string | null;
+            questions: string | null;
+            answers: string | null;
+            action_type: string | null;
+            thinking_id: string | null;
+          };
+
+          return {
+            id: updated.id,
+            session_id: updated.session_id,
+            seq: updated.seq,
+            timestamp: updated.timestamp,
+            kind: updated.kind as TimelineEvent['kind'],
+            status: updated.status ? (updated.status as TimelineEvent['status']) : undefined,
+            command: updated.command ?? undefined,
+            cwd: updated.cwd ?? undefined,
+            duration_ms: updated.duration_ms ?? undefined,
+            exit_code: updated.exit_code ?? undefined,
+            panel_id: updated.panel_id ?? undefined,
+            tool: updated.tool ? (updated.tool as TimelineEvent['tool']) : undefined,
+            meta: updated.meta_json ? (JSON.parse(updated.meta_json) as Record<string, unknown>) : undefined,
+            tool_name: updated.tool_name ?? undefined,
+            tool_input: updated.tool_input ?? undefined,
+            tool_result: updated.tool_result ?? undefined,
+            is_error: updated.is_error ?? undefined,
+            content: updated.content ?? undefined,
+            is_streaming: updated.is_streaming ?? undefined,
+            tool_use_id: updated.tool_use_id ?? undefined,
+            questions: updated.questions ?? undefined,
+            answers: updated.answers ?? undefined,
+            action_type: updated.action_type ?? undefined,
+            thinking_id: updated.thinking_id ?? undefined
+          } satisfies TimelineEvent;
+        }
+        // Fall through to INSERT if not found
+      }
+
+      // Normal INSERT (or first INSERT for thinking/user_question)
       const row = getNextSeq.get(data.session_id) as { next_seq: number };
       const nextSeq = row?.next_seq || 1;
 

@@ -169,13 +169,13 @@ export const MainLayout: React.FC = React.memo(() => {
     setPendingMessage(null);
   }, [activeSessionId, handleCloseDiff]);
 
-  const handleSendMessage = useCallback(async (message: string, images?: import('./types').ImageAttachment[]) => {
+  const handleSendMessage = useCallback(async (message: string, images?: import('./types').ImageAttachment[], planMode?: boolean) => {
     setPendingMessage({
       content: message,
       timestamp: new Date().toISOString(),
       images
     });
-    await sendMessage(message, images);
+    await sendMessage(message, images, planMode);
   }, [sendMessage]);
 
   const handleOpenCommitReview = useCallback(() => {

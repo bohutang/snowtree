@@ -80,6 +80,7 @@ export class CodexPanelManager extends AbstractAIPanelManager {
       sandbox,
       askForApproval,
       reasoningEffort: config.thinkingLevel,
+      planMode: config.planMode,
     };
   }
 

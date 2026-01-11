@@ -151,8 +151,9 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
     }
   });
 
-  ipcMain.handle('panels:continue', async (_event, panelId: string, input: string, _model?: string, _options?: { skipCheckpointAutoCommit?: boolean }, images?: Array<{ id: string; filename: string; mime: string; dataUrl: string }>) => {
+  ipcMain.handle('panels:continue', async (_event, panelId: string, input: string, _model?: string, options?: { skipCheckpointAutoCommit?: boolean; planMode?: boolean }, images?: Array<{ id: string; filename: string; mime: string; dataUrl: string }>) => {
     let sessionIdForError: string | null = null;
+    const planMode = options?.planMode ?? false;
     try {
       const panel = panelManager.getPanel(panelId);
       if (!panel) return { success: false, error: 'Panel not found' };
@@ -162,7 +163,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
       sessionIdForError = session.id;
 
       sessionManager.updateSessionStatus(session.id, 'running');
-      
+
       const messageContent = images && images.length > 0
         ? `${input}\n\n[${images.length} image(s) attached]`
         : input;
@@ -183,7 +184,13 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
           manager.sendInputToPanel(panelId, input);
         } else {
           const history = sessionManager.getPanelConversationMessages(panelId);
-          await manager.continuePanel(panelId, session.worktreePath, input, history);
+          await manager.continuePanel({
+            panelId,
+            worktreePath: session.worktreePath,
+            prompt: input,
+            conversationHistory: history,
+            planMode,
+          });
         }
         return { success: true };
       }
@@ -199,7 +206,13 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
           manager.sendInputToPanel(panelId, input);
         } else {
           const history = sessionManager.getPanelConversationMessages(panelId);
-          await manager.continuePanel(panelId, session.worktreePath, input, history);
+          await manager.continuePanel({
+            panelId,
+            worktreePath: session.worktreePath,
+            prompt: input,
+            conversationHistory: history,
+            planMode,
+          });
         }
         return { success: true };
       }
@@ -211,6 +224,61 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
         sessionManager.updateSessionStatus(sessionIdForError, 'error', error instanceof Error ? error.message : String(error));
       }
       return { success: false, error: error instanceof Error ? error.message : 'Failed to continue panel' };
+    }
+  });
+
+  // Answer user question handlers for Claude and Codex panels
+  ipcMain.handle('claude-panels:answer-question', async (_event, panelId: string, answers: Record<string, string | string[]>) => {
+    try {
+      logger?.info(`[IPC] claude-panels:answer-question called for panelId: ${panelId}, answers: ${JSON.stringify(answers)}`);
+
+      // Ensure panel is registered before answering
+      const panel = panelManager.getPanel(panelId);
+      if (!panel) {
+        throw new Error(`Panel ${panelId} not found`);
+      }
+      const session = sessionManager.getSession(panel.sessionId);
+      if (!session) {
+        throw new Error(`Session ${panel.sessionId} not found`);
+      }
+
+      const manager = ensureClaudePanelManager();
+      // Register panel if not already registered
+      manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
+
+      await manager.answerQuestion(panelId, answers);
+      return { success: true };
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      logger?.error(`[IPC] claude-panels:answer-question failed: ${err.message}`, err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('codexPanel:answer-question', async (_event, panelId: string, answers: Record<string, string | string[]>) => {
+    try {
+      logger?.info(`[IPC] codexPanel:answer-question called for panelId: ${panelId}, answers: ${JSON.stringify(answers)}`);
+
+      // Ensure panel is registered before answering
+      const panel = panelManager.getPanel(panelId);
+      if (!panel) {
+        throw new Error(`Panel ${panelId} not found`);
+      }
+      const session = sessionManager.getSession(panel.sessionId);
+      if (!session) {
+        throw new Error(`Session ${panel.sessionId} not found`);
+      }
+
+      const manager = ensureCodexPanelManager();
+      // Register panel if not already registered
+      manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
+
+      await manager.answerQuestion(panelId, answers);
+      return { success: true };
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      logger?.error(`[IPC] codexPanel:answer-question failed: ${err.message}`, err);
+      return { success: false, error: err.message };
     }
   });
 }

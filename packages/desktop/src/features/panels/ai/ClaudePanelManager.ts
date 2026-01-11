@@ -42,6 +42,7 @@ export class ClaudePanelManager extends AbstractAIPanelManager {
     return {
       permissionMode,
       model: config.model,
+      planMode: config.planMode,
     };
   }
 

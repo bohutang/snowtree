@@ -38,12 +38,14 @@ export interface ImageAttachment {
   dataUrl: string;
 }
 
+export type ExecutionMode = 'execute' | 'plan';
+
 export interface InputBarProps {
   session: Session;
   panelId: string | null;
   selectedTool: CLITool;
   onToolChange: (tool: CLITool) => void;
-  onSend: (message: string, images?: ImageAttachment[]) => void;
+  onSend: (message: string, images?: ImageAttachment[], planMode?: boolean) => void;
   onCancel: () => void;
   isProcessing: boolean;
   placeholder?: string;

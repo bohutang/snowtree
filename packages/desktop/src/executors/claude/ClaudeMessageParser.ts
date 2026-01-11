@@ -110,9 +110,20 @@ export class ClaudeMessageParser {
   private parseAssistantMessage(
     message: Extract<ClaudeMessage, { type: 'assistant' }>,
     timestamp: string
-  ): NormalizedEntry {
+  ): NormalizedEntry | null {
     const contentItems = message.message?.content || [];
     const textContent = this.extractTextContent(contentItems);
+    const stopReason = message.message?.stop_reason;
+
+    // Detect partial messages: when using --include-partial-messages,
+    // partial messages have stop_reason: null, final messages have stop_reason: "end_turn"
+    const isStreaming = !stopReason || stopReason === null;
+
+    // Skip streaming assistant messages with no text content (likely tool_use only)
+    // We already track text streaming via stream_event content_block_delta
+    if (isStreaming && !textContent.trim()) {
+      return null;
+    }
 
     return {
       id: uuidv4(),
@@ -121,7 +132,8 @@ export class ClaudeMessageParser {
       content: textContent,
       metadata: {
         model: message.message?.model,
-        stop_reason: message.message?.stop_reason,
+        stop_reason: stopReason,
+        streaming: isStreaming,
       },
     };
   }
@@ -131,6 +143,7 @@ export class ClaudeMessageParser {
     timestamp: string
   ): NormalizedEntry {
     const toolName = message.tool_name || 'unknown';
+    const toolUseId = message.tool_use_id;
     const input = message.input || {};
     const actionType = this.inferActionType(toolName, input);
 
@@ -140,6 +153,7 @@ export class ClaudeMessageParser {
       entryType: 'tool_use',
       content: this.formatToolInput(toolName, input),
       toolName,
+      toolUseId,
       toolStatus: 'pending',
       actionType,
       metadata: {
@@ -153,6 +167,7 @@ export class ClaudeMessageParser {
     timestamp: string
   ): NormalizedEntry {
     const isError = message.is_error || false;
+    const toolUseId = message.tool_use_id;
     const result = message.result;
 
     return {
@@ -160,6 +175,7 @@ export class ClaudeMessageParser {
       timestamp,
       entryType: 'tool_result',
       content: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
+      toolUseId,
       toolStatus: isError ? 'failed' : 'success',
       metadata: {
         is_error: isError,

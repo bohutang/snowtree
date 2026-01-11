@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { ChevronDown, Sparkles, Code2, Loader2 } from 'lucide-react';
-import type { InputBarProps, CLITool, ImageAttachment } from './types';
+import type { InputBarProps, CLITool, ImageAttachment, ExecutionMode } from './types';
 import { API } from '../../utils/api';
 import { withTimeout } from '../../utils/withTimeout';
 import type { TimelineEvent } from '../../types/timeline';
@@ -354,6 +354,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
 }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('execute');
   const editorRef = useRef<HTMLDivElement>(null);
   const [aiToolsStatus, setAiToolsStatus] = useState<AiToolsStatus | null>(null);
   const [, setAiToolsLoading] = useState(false);
@@ -644,7 +645,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       draftBeforeHistoryRef.current = '';
     }
 
-    onSend(text, imageAttachments.length > 0 ? imageAttachments : undefined);
+    onSend(text, imageAttachments.length > 0 ? imageAttachments : undefined, executionMode === 'plan');
     if (editorRef.current) {
       const editor = editorRef.current;
       editor.innerHTML = '';
@@ -894,10 +895,17 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
-      const tools: CLITool[] = ['claude', 'codex'];
-      const currentIndex = tools.indexOf(selectedTool);
-      const nextIndex = (currentIndex + 1) % tools.length;
-      onToolChange(tools[nextIndex]);
+
+      if (e.shiftKey) {
+        // Shift+Tab: Toggle execution mode (plan/execute)
+        setExecutionMode((prev) => prev === 'execute' ? 'plan' : 'execute');
+      } else {
+        // Tab: Switch agent
+        const tools: CLITool[] = ['claude', 'codex'];
+        const currentIndex = tools.indexOf(selectedTool);
+        const nextIndex = (currentIndex + 1) % tools.length;
+        onToolChange(tools[nextIndex]);
+      }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     document.addEventListener('keydown', handleTabKey, { capture: true });
@@ -1216,6 +1224,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
   }, [loadAvailability]);
 
   const agentName = selectedTool === 'claude' ? 'Claude' : 'Codex';
+  const modeName = executionMode === 'plan' ? 'Plan' : 'Execute';
   const selectedSettings = toolSettings[selectedTool];
   const availabilityForSelected = aiToolsStatus?.[selectedTool];
   const modelInfo = selectedSettings.model || '';
@@ -1283,6 +1292,14 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
 
               <div className="flex items-center gap-2 mt-2 text-[12px]">
                 <span data-testid="input-agent" style={{ color: 'var(--st-accent)' }}>{agentName}</span>
+                <span
+                  data-testid="input-mode"
+                  style={{
+                    color: executionMode === 'plan' ? 'var(--st-warning, #f59e0b)' : 'var(--st-text-faint)',
+                  }}
+                >
+                  {modeName}
+                </span>
                 {modelInfo && (
                   <span style={{ color: 'var(--st-text)' }}>{modelInfo}</span>
                 )}
@@ -1316,10 +1333,16 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
                 </>
               )}
             </div>
-            <span style={{ color: 'var(--st-text)' }}>
-              tab{' '}
-              <span style={{ color: 'var(--st-text-faint)' }}>switch agent</span>
-            </span>
+            <div className="flex items-center gap-3">
+              <span style={{ color: 'var(--st-text)' }}>
+                tab{' '}
+                <span style={{ color: 'var(--st-text-faint)' }}>switch agent</span>
+              </span>
+              <span style={{ color: 'var(--st-text)' }}>
+                shift+tab{' '}
+                <span style={{ color: 'var(--st-text-faint)' }}>switch mode</span>
+              </span>
+            </div>
           </div>
         </div>
       </div>

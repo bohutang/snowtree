@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
 
+// Mock process.platform to avoid macOS-specific curl download
+const originalPlatform = process.platform;
+Object.defineProperty(process, 'platform', { value: 'linux', writable: true });
+
 // Create mock outside of vi.mock using vi.hoisted
 const mockCheckForUpdates = vi.fn().mockResolvedValue(undefined);
 const mockDownloadUpdate = vi.fn().mockResolvedValue(undefined);

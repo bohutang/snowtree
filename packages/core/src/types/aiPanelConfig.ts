@@ -7,7 +7,10 @@ export interface AIPanelConfig {
   model?: string;
   prompt: string;
   worktreePath: string;
-  
+
+  // Plan mode: only plan, don't execute code modifications
+  planMode?: boolean;
+
   // Claude-specific
   permissionMode?: 'approve' | 'ignore';
   

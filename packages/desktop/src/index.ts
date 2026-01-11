@@ -33,6 +33,17 @@ import { panelManager } from './features/panels/PanelManager';
 import { UpdateManager } from './features/updater/UpdateManager';
 import * as fs from 'fs';
 
+// Handle EPIPE errors gracefully - they occur when writing to a closed pipe
+// and are not critical errors that should crash the app
+process.on('uncaughtException', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EPIPE') {
+    // Silently ignore EPIPE errors - they happen when child processes exit
+    return;
+  }
+  // Re-throw other uncaught exceptions
+  console.error('Uncaught Exception:', error);
+});
+
 export let mainWindow: BrowserWindow | null = null;
 let aboutWindow: BrowserWindow | null = null;
 
