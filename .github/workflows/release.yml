@@ -34,11 +34,43 @@ jobs:
           PREV="$(git tag --sort=-version:refname | grep -E '^v' | grep -v "^${TAG}$" | head -n 1 || true)"
           echo "Creating draft release: ${TAG} (previous: ${PREV:-<none>})"
 
+          # Generate release notes with changelog
           if [ -n "${PREV}" ]; then
-            gh release create "${TAG}" --draft --latest=false --verify-tag --generate-notes --notes-start-tag "${PREV}"
+            gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f "tag_name=${TAG}" \
+              -f "previous_tag_name=${PREV}" \
+              > release-notes.json
           else
-            gh release create "${TAG}" --draft --latest=false --verify-tag --generate-notes
+            gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f "tag_name=${TAG}" \
+              > release-notes.json
           fi
+
+          python3 - <<'PY'
+          import json
+          with open("release-notes.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+          body = data.get("body") or ""
+          with open("release-notes.md", "w", encoding="utf-8") as f:
+              f.write(body)
+              if not body.endswith("\n"):
+                  f.write("\n")
+          PY
+
+          # Add commits section
+          {
+            echo ""
+            echo "## Commits"
+            if [ -n "${PREV}" ]; then
+              git log --no-merges --pretty=format:'- %s (%h)' "${PREV}..${TAG}" || true
+            else
+              git log --no-merges -n 50 --pretty=format:'- %s (%h)' "${TAG}" || true
+            fi
+            echo ""
+          } >> release-notes.md
+
+          # Create draft release with full changelog
+          gh release create "${TAG}" --draft --latest=false --verify-tag --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -140,7 +172,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Update release notes and publish (undraft)
+      - name: Publish release (undraft)
         shell: bash
         run: |
           set -euo pipefail
@@ -150,43 +182,7 @@ jobs:
             exit 1
           fi
 
-          PREV="$(git tag --sort=-version:refname | grep -E '^v' | grep -v "^${TAG}$" | head -n 1 || true)"
-          echo "tag=${TAG}"
-          echo "previous=${PREV:-<none>}"
-
-          if [ -n "${PREV}" ]; then
-            gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-              -f "tag_name=${TAG}" \
-              -f "previous_tag_name=${PREV}" \
-              > release-notes.json
-          else
-            gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-              -f "tag_name=${TAG}" \
-              > release-notes.json
-          fi
-
-          python3 - <<'PY'
-          import json
-          with open("release-notes.json", "r", encoding="utf-8") as f:
-              data = json.load(f)
-          body = data.get("body") or ""
-          with open("release-notes.md", "w", encoding="utf-8") as f:
-              f.write(body)
-              if not body.endswith("\n"):
-                  f.write("\n")
-          PY
-
-          {
-            echo ""
-            echo "## Commits"
-            if [ -n "${PREV}" ]; then
-              git log --no-merges --pretty=format:'- %s (%h)' "${PREV}..${TAG}" || true
-            else
-              git log --no-merges -n 50 --pretty=format:'- %s (%h)' "${TAG}" || true
-            fi
-            echo ""
-          } >> release-notes.md
-
-          gh release edit "${TAG}" --draft=false --latest --notes-file release-notes.md
+          echo "Publishing release: ${TAG}"
+          gh release edit "${TAG}" --draft=false --latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
