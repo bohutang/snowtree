@@ -414,8 +414,14 @@ export class GitStagingManager {
 
       // Track line numbers for each line
       const lineType = line[0];
-      const type: HunkLine['type'] =
-        lineType === '+' ? 'added' : lineType === '-' ? 'deleted' : 'context';
+      let type: HunkLine['type'];
+      if (lineType === '+') {
+        type = 'added';
+      } else if (lineType === '-') {
+        type = 'deleted';
+      } else {
+        type = 'context';
+      }
 
       currentHunk.lines.push({
         text: line,

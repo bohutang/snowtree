@@ -297,6 +297,8 @@ export const MainLayout: React.FC = React.memo(() => {
     );
   }
 
+  const isCliAgent = displaySession.toolType === 'claude' || displaySession.toolType === 'codex';
+
   return (
     <div className="flex-1 flex h-full overflow-hidden st-bg" data-testid="main-layout">
       <div className="flex-1 flex flex-col min-w-0 relative">
@@ -385,10 +387,10 @@ export const MainLayout: React.FC = React.memo(() => {
           key={displaySession.id}
           session={displaySession}
           onFileClick={handleFileClick}
-          onCommitUncommittedChanges={(displaySession.toolType === 'claude' || displaySession.toolType === 'codex') ? handleOpenCommitReview : undefined}
+          onCommitUncommittedChanges={isCliAgent ? handleOpenCommitReview : undefined}
           isCommitDisabled={isProcessing}
           onCommitClick={handleCommitClick}
-          onPushPR={(displaySession.toolType === 'claude' || displaySession.toolType === 'codex') ? handleRequestPushPR : undefined}
+          onPushPR={isCliAgent ? handleRequestPushPR : undefined}
           isPushPRDisabled={isProcessing}
         />
       </div>
