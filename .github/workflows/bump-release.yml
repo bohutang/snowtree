@@ -1,0 +1,142 @@
+name: Bump & Tag Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Which semver part to bump'
+        type: choice
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+      base_tag:
+        description: 'Optional base tag (e.g. v1.2.3). Defaults to releases/latest'
+        type: string
+        required: false
+      dry_run:
+        description: 'Compute/commit locally but do not push'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  bump_and_tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Configure git
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Determine next version
+        id: next
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE_TAG="${{ inputs.base_tag }}"
+          if [ -z "${BASE_TAG}" ]; then
+            # Prefer "latest" release if set; fall back to tags if it doesn't exist.
+            BASE_TAG="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
+          fi
+          if [ -z "${BASE_TAG}" ]; then
+            BASE_TAG="$(git tag --sort=-version:refname | grep -E '^v[0-9]+\\.[0-9]+\\.[0-9]+$' | head -n 1 || true)"
+          fi
+          if [ -z "${BASE_TAG}" ]; then
+            echo "No base tag found (no releases/latest and no vX.Y.Z tags)" >&2
+            exit 1
+          fi
+
+          if ! [[ "${BASE_TAG}" =~ ^v([0-9]+)\\.([0-9]+)\\.([0-9]+)$ ]]; then
+            echo "Base tag is not a stable semver tag: ${BASE_TAG}" >&2
+            exit 1
+          fi
+
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+
+          case "${{ inputs.bump }}" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+            *)
+              echo "Unknown bump: ${{ inputs.bump }}" >&2
+              exit 1
+              ;;
+          esac
+
+          NEXT_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+
+          if git rev-parse -q --verify "refs/tags/${NEXT_TAG}" >/dev/null; then
+            echo "Tag already exists locally: ${NEXT_TAG}" >&2
+            exit 1
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${NEXT_TAG}" >/dev/null 2>&1; then
+            echo "Tag already exists on remote: ${NEXT_TAG}" >&2
+            exit 1
+          fi
+
+          echo "base_tag=${BASE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${NEXT_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version=${NEXT_VERSION}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "Base tag: ${BASE_TAG}"
+            echo "Next tag: ${NEXT_TAG}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump package.json version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.next.outputs.version }}"
+          node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("package.json","utf8")); p.version=process.env.VERSION; fs.writeFileSync("package.json", JSON.stringify(p,null,2)+"\n");'
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+
+      - name: Commit and tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.next.outputs.version }}"
+          TAG="${{ steps.next.outputs.tag }}"
+
+          git add package.json
+          git commit -m "Bump version to ${VERSION}"
+          git tag -a "${TAG}" -m "${TAG}"
+
+      - name: Push (commit + tag)
+        if: ${{ inputs.dry_run == false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.next.outputs.tag }}"
+          git push origin HEAD:main
+          git push origin "refs/tags/${TAG}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

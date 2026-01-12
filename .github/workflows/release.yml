@@ -4,6 +4,19 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v1.2.3)'
+        required: true
+      force_publish:
+        description: 'Rebuild/re-upload even if the release already exists'
+        required: false
+        default: 'false'
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  FORCE_PUBLISH: ${{ github.event.inputs.force_publish || 'false' }}
 
 jobs:
   create_release:
@@ -11,18 +24,47 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      should_build: ${{ steps.release_meta.outputs.should_build }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Create draft GitHub release (with notes)
+      - name: Decide whether to build/publish
+        id: release_meta
         shell: bash
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${RELEASE_TAG}"
+          FORCE="${FORCE_PUBLISH}"
           if [ -z "${TAG}" ]; then
-            echo "Missing GITHUB_REF_NAME" >&2
+            echo "Missing RELEASE_TAG" >&2
+            exit 1
+          fi
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            if [ "${FORCE}" = "true" ]; then
+              echo "should_build=true" >> "${GITHUB_OUTPUT}"
+              echo "Release ${TAG} already exists; force_publish=true, proceeding to rebuild/re-upload"
+            else
+              echo "should_build=false" >> "${GITHUB_OUTPUT}"
+              echo "Release ${TAG} already exists; skipping build/publish"
+            fi
+          else
+            echo "should_build=true" >> "${GITHUB_OUTPUT}"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create draft GitHub release (with notes)
+        if: steps.release_meta.outputs.should_build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${RELEASE_TAG}"
+          if [ -z "${TAG}" ]; then
+            echo "Missing RELEASE_TAG" >&2
             exit 1
           fi
 
@@ -78,6 +120,7 @@ jobs:
     name: Build & upload assets (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs: create_release
+    if: needs.create_release.outputs.should_build == 'true'
     permissions:
       contents: write
     strategy:
@@ -161,10 +204,39 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Ensure release assets uploaded (gh upload)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${RELEASE_TAG}"
+          VER="${TAG#v}"
+          DIST="${RELEASE_APP_DIR}/dist-electron"
+
+          if [ ! -d "${DIST}" ]; then
+            echo "Missing dist dir: ${DIST}" >&2
+            exit 1
+          fi
+
+          mapfile -t FILES < <(
+            find "${DIST}" -maxdepth 1 -type f \
+              \( -name "latest-*.yml" -o -name "snowtree-${VER}-*" \) \
+              -print
+          )
+
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No release assets found to upload in ${DIST}" >&2
+            exit 1
+          fi
+
+          gh release upload "${TAG}" "${FILES[@]}" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   finalize_release:
     name: Publish release notes
     runs-on: ubuntu-latest
-    needs: build
+    needs: [create_release, build]
+    if: needs.create_release.outputs.should_build == 'true' && needs.build.result == 'success'
     permissions:
       contents: write
     steps:
@@ -176,9 +248,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${RELEASE_TAG}"
           if [ -z "${TAG}" ]; then
-            echo "Missing GITHUB_REF_NAME" >&2
+            echo "Missing RELEASE_TAG" >&2
             exit 1
           fi
 
