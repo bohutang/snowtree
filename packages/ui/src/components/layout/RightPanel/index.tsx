@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, ChevronDown, GitCommit, GitPullRequest, Download, RotateCw, Check } from 'lucide-react';
+import { RefreshCw, ChevronDown, GitCommit, GitPullRequest, Download, RotateCw, Check, ArrowUp, ArrowDown } from 'lucide-react';
 import { useRightPanelData, type Commit } from '../useRightPanelData';
 import type { FileChange, RightPanelProps } from '../types';
 import type { DiffTarget } from '../../../types/diff';
@@ -18,6 +18,10 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
     onCommitClick,
     onPushPR,
     isPushPRDisabled,
+    onUpdateBranch,
+    isUpdateBranchDisabled,
+    onSyncPR,
+    isSyncPRDisabled,
   }) => {
     const [appVersion, setAppVersion] = useState<string>('');
     const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -33,12 +37,15 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
     >(null);
     const [isCommitsExpanded, setIsCommitsExpanded] = useState(true);
     const [isChangesExpanded, setIsChangesExpanded] = useState(true);
+    const [isPRExpanded, setIsPRExpanded] = useState(true);
 
     const {
       commits,
       workingTree,
       workingTreeDiffs,
       remotePullRequest,
+      branchSyncStatus,
+      prSyncStatus,
       commitFiles,
       selection,
       isLoading,
@@ -47,6 +54,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
       selectWorkingTree,
       selectCommit,
       refresh,
+      refreshBranchSync,
       stageAll,
       stageFile,
     } = useRightPanelData(session.id);
@@ -225,6 +233,13 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
     // Check if there are any session commits (id > 0, not uncommitted or base)
     const hasSessionCommits = commits.some((c) => c.id > 0);
 
+    // Check if working tree has uncommitted changes (must be clean for sync operations)
+    const hasUncommittedChanges = Boolean(
+      (workingTree?.staged.length || 0) +
+        (workingTree?.unstaged.length || 0) +
+        (workingTree?.untracked.length || 0)
+    );
+
     const showHunkProgress = isWorkingTreeSelected && totalChanges > 0 && totalHunks > 0;
     const progressRatio = showHunkProgress && totalHunks > 0 ? stagedHunks / totalHunks : 0;
 
@@ -301,68 +316,228 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
         <div
           className="flex-shrink-0"
           style={{
-            backgroundColor: colors.bg.secondary,
             borderBottom: `1px solid ${colors.border}`,
           }}
         >
-          <div className="flex items-center justify-between px-3 py-2">
-            <div
-              className="text-xs font-medium"
+          <div
+            className="flex items-center justify-between px-3 py-2"
+            style={{ backgroundColor: colors.bg.secondary }}
+          >
+            <button
+              type="button"
+              onClick={() => setIsPRExpanded(!isPRExpanded)}
+              className="flex items-center gap-1.5 text-xs font-medium transition-all duration-75 px-1.5 py-0.5 -ml-1.5 rounded st-hoverable st-focus-ring"
               style={{ color: colors.text.secondary }}
             >
-              PR
-            </div>
-            <div className="flex items-center gap-1">
-              {remotePullRequest?.number && remotePullRequest.url && (
+              <ChevronDown
+                className={`w-3 h-3 transition-transform ${isPRExpanded ? '' : '-rotate-90'}`}
+                style={{ color: colors.text.muted }}
+              />
+              <span>Pull Request</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { refresh(); void refreshBranchSync(); }}
+              disabled={isDisabled}
+              className="p-1.5 rounded transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+            >
+              <RefreshCw
+                className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`}
+                style={{ color: colors.text.muted }}
+              />
+            </button>
+          </div>
+
+          {isPRExpanded && (
+            <div className="px-3 pb-3 space-y-2">
+              {/* PR Info Card */}
+              {remotePullRequest?.number && remotePullRequest.url ? (
                 <button
                   type="button"
                   onClick={handleOpenRemotePullRequest}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring"
-                  style={{ color: colors.accent }}
+                  className="w-full text-left p-2 rounded transition-all duration-75 st-hoverable st-focus-ring"
+                  style={{
+                    backgroundColor: colors.bg.hover,
+                    border: `1px solid ${colors.border}`,
+                  }}
                   data-testid="right-panel-open-remote-pr"
                 >
-                  <GitPullRequest className="w-3 h-3" />
-                  PR #{remotePullRequest.number}
-                  {remotePullRequest.merged && (
-                    <span
-                      className="flex items-center gap-0.5 ml-1 px-1.5 py-0.5 rounded text-[9px] font-medium"
-                      style={{
-                        backgroundColor: colors.text.added,
-                        color: '#fff',
-                      }}
-                    >
-                      <Check className="w-2.5 h-2.5" />
-                      merged
+                  <div className="flex items-center gap-2">
+                    <GitPullRequest className="w-4 h-4" style={{ color: colors.accent }} />
+                    <span className="text-xs font-medium" style={{ color: colors.text.primary }}>
+                      PR #{remotePullRequest.number}
                     </span>
-                  )}
+                    {remotePullRequest.merged && (
+                      <span
+                        className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium"
+                        style={{
+                          backgroundColor: colors.text.added,
+                          color: '#fff',
+                        }}
+                      >
+                        <Check className="w-2.5 h-2.5" />
+                        merged
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 text-[10px]" style={{ color: colors.text.muted }}>
+                    {prSyncStatus?.branch || 'branch'} → {session.baseBranch || 'main'}
+                  </div>
                 </button>
-              )}
-              {onPushPR && (
-                <button
-                  type="button"
-                  onClick={onPushPR}
-                  disabled={isPushPRDisabled || isDisabled || remotePullRequest?.merged || !hasSessionCommits}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                  style={{ color: colors.accent }}
-                  data-testid="right-panel-sync-remote-pr"
+              ) : (
+                <div
+                  className="p-2 rounded text-xs"
+                  style={{
+                    backgroundColor: colors.bg.hover,
+                    border: `1px solid ${colors.border}`,
+                    color: colors.text.muted,
+                  }}
                 >
-                  <GitPullRequest className="w-3 h-3" />
-                  {remotePullRequest ? 'Sync' : 'Create'}
-                </button>
+                  No pull request yet
+                </div>
               )}
-              <button
-                type="button"
-                onClick={refresh}
-                disabled={isDisabled}
-                className="p-1.5 rounded transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-              >
-                <RefreshCw
-                  className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`}
-                  style={{ color: colors.text.muted }}
-                />
-              </button>
+
+              {/* Action Buttons */}
+              <div className="space-y-1.5">
+                {/* Push & Create/Sync PR */}
+                {onPushPR && (
+                  <button
+                    type="button"
+                    onClick={onPushPR}
+                    disabled={isPushPRDisabled || isDisabled || remotePullRequest?.merged || !hasSessionCommits || (prSyncStatus?.localAhead === 0 && remotePullRequest !== null)}
+                    className="w-full flex items-center justify-between px-2.5 py-2 rounded text-xs transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                    style={{
+                      backgroundColor: colors.bg.hover,
+                      border: `1px solid ${colors.border}`,
+                      color: (isPushPRDisabled || isDisabled || remotePullRequest?.merged || !hasSessionCommits || (prSyncStatus?.localAhead === 0 && remotePullRequest !== null))
+                        ? colors.text.muted
+                        : colors.accent,
+                    }}
+                    data-testid="right-panel-sync-remote-pr"
+                  >
+                    <div className="flex items-center gap-2">
+                      <ArrowUp className="w-3.5 h-3.5" />
+                      <span>{remotePullRequest ? 'Push & Sync PR' : 'Push & Create PR'}</span>
+                    </div>
+                    {prSyncStatus && prSyncStatus.localAhead > 0 ? (
+                      <span
+                        className="px-1.5 py-0.5 rounded text-[10px] font-mono"
+                        style={{
+                          backgroundColor: colors.accent,
+                          color: '#fff',
+                        }}
+                      >
+                        ↑{prSyncStatus.localAhead}
+                      </span>
+                    ) : remotePullRequest && (
+                      <span
+                        className="text-[10px]"
+                        style={{ color: colors.text.added }}
+                      >
+                        ✓ synced
+                      </span>
+                    )}
+                  </button>
+                )}
+
+                {/* Sync PR Changes (fetch remote updates) */}
+                {remotePullRequest && onSyncPR && (
+                  <button
+                    type="button"
+                    onClick={onSyncPR}
+                    disabled={isSyncPRDisabled || isDisabled || hasUncommittedChanges || remotePullRequest?.merged || (prSyncStatus?.remoteAhead || 0) === 0}
+                    className="w-full flex items-center justify-between px-2.5 py-2 rounded text-xs transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                    style={{
+                      backgroundColor: colors.bg.hover,
+                      border: `1px solid ${colors.border}`,
+                      color: (isSyncPRDisabled || isDisabled || hasUncommittedChanges || remotePullRequest?.merged || (prSyncStatus?.remoteAhead || 0) === 0)
+                        ? colors.text.muted
+                        : colors.text.modified,
+                    }}
+                    data-testid="right-panel-fetch-pr-updates"
+                  >
+                    <div className="flex items-center gap-2">
+                      <RotateCw className="w-3.5 h-3.5" />
+                      <div className="text-left">
+                        <span>Sync PR Changes</span>
+                        {hasUncommittedChanges && (prSyncStatus?.remoteAhead || 0) > 0 && (
+                          <div className="text-[9px] mt-0.5" style={{ color: colors.text.modified }}>
+                            Commit changes first
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {(prSyncStatus?.remoteAhead || 0) > 0 ? (
+                      <span
+                        className="px-1.5 py-0.5 rounded text-[10px] font-mono"
+                        style={{
+                          backgroundColor: colors.text.modified,
+                          color: '#fff',
+                        }}
+                      >
+                        ↓{prSyncStatus?.remoteAhead}
+                      </span>
+                    ) : (
+                      <span
+                        className="text-[10px]"
+                        style={{ color: colors.text.added }}
+                      >
+                        ✓ synced
+                      </span>
+                    )}
+                  </button>
+                )}
+
+                {/* Update from Main */}
+                {onUpdateBranch && (
+                  <button
+                    type="button"
+                    onClick={onUpdateBranch}
+                    disabled={isUpdateBranchDisabled || isDisabled || hasUncommittedChanges || (branchSyncStatus?.commitsBehindMain || 0) === 0}
+                    className="w-full flex items-center justify-between px-2.5 py-2 rounded text-xs transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                    style={{
+                      backgroundColor: colors.bg.hover,
+                      border: `1px solid ${colors.border}`,
+                      color: (isUpdateBranchDisabled || isDisabled || hasUncommittedChanges || (branchSyncStatus?.commitsBehindMain || 0) === 0)
+                        ? colors.text.muted
+                        : colors.text.modified,
+                    }}
+                    data-testid="right-panel-update-branch"
+                  >
+                    <div className="flex items-center gap-2">
+                      <ArrowDown className="w-3.5 h-3.5" />
+                      <div className="text-left">
+                        <span>Update from {branchSyncStatus?.baseBranch || session.baseBranch || 'main'}</span>
+                        {hasUncommittedChanges && (branchSyncStatus?.commitsBehindMain || 0) > 0 && (
+                          <div className="text-[9px] mt-0.5" style={{ color: colors.text.modified }}>
+                            Commit changes first
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {(branchSyncStatus?.commitsBehindMain || 0) > 0 ? (
+                      <span
+                        className="px-1.5 py-0.5 rounded text-[10px] font-mono"
+                        style={{
+                          backgroundColor: colors.text.modified,
+                          color: '#fff',
+                        }}
+                      >
+                        ↓{branchSyncStatus?.commitsBehindMain}
+                      </span>
+                    ) : (
+                      <span
+                        className="text-[10px]"
+                        style={{ color: colors.text.added }}
+                      >
+                        ✓ latest
+                      </span>
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* 2. Commits Section (flex-shrink-0) */}

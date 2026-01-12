@@ -262,6 +262,111 @@ export const MainLayout: React.FC = React.memo(() => {
     await sendMessageToTool(selectedTool, pushPrompt, { skipCheckpointAutoCommit: true });
   }, [session, isProcessing, selectedTool, handleCloseDiff, sendMessageToTool, branchName]);
 
+  // Update branch - AI executes git rebase on main
+  const handleUpdateBranch = useCallback(async () => {
+    if (!session || isProcessing) return;
+    if (session.toolType !== 'codex' && session.toolType !== 'claude') return;
+
+    handleCloseDiff();
+    setInputFocusRequestId((prev) => prev + 1);
+
+    const baseBranch = session.baseBranch || 'main';
+
+    const updatePrompt = [
+      `Update the current branch with the latest changes from origin/${baseBranch}.`,
+      '',
+      'Do (show the exact commands you run):',
+      '1. Check current state:',
+      '   - git status  # Ensure working tree is clean',
+      '   - git branch --show-current',
+      '',
+      '2. Fetch latest changes:',
+      `   - git fetch origin ${baseBranch}`,
+      '',
+      '3. Rebase current branch:',
+      `   - git rebase origin/${baseBranch}`,
+      '',
+      '4. If conflicts occur:',
+      '   - List conflicted files: git status',
+      '   - For each conflicted file:',
+      '     a. Read the file content to see conflict markers',
+      '     b. Analyze both sides (HEAD vs incoming)',
+      '     c. Resolve by keeping the best code or merging both',
+      '     d. Stage the resolved file: git add <file>',
+      '   - Continue rebase: git rebase --continue',
+      '   - Repeat until all conflicts are resolved',
+      '',
+      'Guidelines:',
+      '- If working tree is dirty: stop and tell me to commit/stash changes first',
+      '- If rebase has no conflicts: report success with summary',
+      '- If conflicts occur: analyze and resolve them intelligently',
+      '- Preserve functionality from both sides when possible',
+      '- If a command fails: paste the exact error and ask me what to do next',
+    ].join('\n');
+
+    setPendingMessage({
+      content: updatePrompt,
+      timestamp: new Date().toISOString()
+    });
+
+    await sendMessageToTool(selectedTool, updatePrompt, { skipCheckpointAutoCommit: true });
+  }, [session, isProcessing, selectedTool, handleCloseDiff, sendMessageToTool]);
+
+  // Sync PR changes - AI fetches and rebases remote PR updates
+  const handleSyncPR = useCallback(async () => {
+    if (!session || isProcessing) return;
+    if (session.toolType !== 'codex' && session.toolType !== 'claude') return;
+
+    handleCloseDiff();
+    setInputFocusRequestId((prev) => prev + 1);
+
+    const headBranch = branchName || 'HEAD';
+
+    const syncPrompt = [
+      `Sync local branch with the latest changes from the remote PR branch (origin/${headBranch}).`,
+      '',
+      'Do (show the exact commands you run):',
+      '1. Check current state:',
+      '   - git status  # Ensure working tree is clean',
+      '   - git branch --show-current',
+      '',
+      '2. Fetch latest changes:',
+      `   - git fetch origin ${headBranch}`,
+      '',
+      '3. Check divergence:',
+      `   - git log --oneline HEAD..origin/${headBranch}  # Remote commits to pull`,
+      `   - git log --oneline origin/${headBranch}..HEAD  # Local commits not pushed`,
+      '',
+      '4. Pull with rebase:',
+      `   - git pull --rebase origin ${headBranch}`,
+      '',
+      '5. If conflicts occur:',
+      '   - List conflicted files: git status',
+      '   - For each conflicted file:',
+      '     a. Read the file content to see conflict markers',
+      '     b. Analyze both sides (local vs remote)',
+      '     c. Resolve by keeping the best code or merging both',
+      '     d. Stage the resolved file: git add <file>',
+      '   - Continue rebase: git rebase --continue',
+      '   - Repeat until all conflicts are resolved',
+      '',
+      'Guidelines:',
+      '- If working tree is dirty: stop and tell me to commit/stash changes first',
+      '- If pull has no conflicts: report success with summary',
+      '- If local has unpushed commits and remote has new commits: warn about divergence',
+      '- If conflicts occur: analyze and resolve them intelligently',
+      '- Preserve functionality from both sides when possible',
+      '- If a command fails: paste the exact error and ask me what to do next',
+    ].join('\n');
+
+    setPendingMessage({
+      content: syncPrompt,
+      timestamp: new Date().toISOString()
+    });
+
+    await sendMessageToTool(selectedTool, syncPrompt, { skipCheckpointAutoCommit: true });
+  }, [session, isProcessing, selectedTool, handleCloseDiff, sendMessageToTool, branchName]);
+
   const handleCommitClick = useCallback((target: DiffTarget, files: FileChange[]) => {
     setSelectedDiffTarget(target);
     setDiffFiles(files);
@@ -380,6 +485,10 @@ export const MainLayout: React.FC = React.memo(() => {
           onCommitClick={handleCommitClick}
           onPushPR={isCliAgent ? handleRequestPushPR : undefined}
           isPushPRDisabled={isProcessing}
+          onUpdateBranch={isCliAgent ? handleUpdateBranch : undefined}
+          isUpdateBranchDisabled={isProcessing}
+          onSyncPR={isCliAgent ? handleSyncPR : undefined}
+          isSyncPRDisabled={isProcessing}
         />
       </div>
     </div>

@@ -32,6 +32,17 @@ export interface RemotePullRequest {
   merged: boolean;
 }
 
+export interface BranchSyncStatus {
+  commitsBehindMain: number;
+  baseBranch: string;
+}
+
+export interface PRSyncStatus {
+  localAhead: number;
+  remoteAhead: number;
+  branch: string | null;
+}
+
 export type Selection =
   | { kind: 'working' }
   | { kind: 'commit'; hash: string }
@@ -42,6 +53,8 @@ export interface RightPanelData {
   workingTree: WorkingTree | null;
   workingTreeDiffs: WorkingTreeDiffs;
   remotePullRequest: RemotePullRequest | null;
+  branchSyncStatus: BranchSyncStatus | null;
+  prSyncStatus: PRSyncStatus | null;
   commitFiles: FileChange[];
   selection: Selection;
   isLoading: boolean;
@@ -51,6 +64,7 @@ export interface RightPanelData {
   selectWorkingTree: () => void;
   selectCommit: (hash: string) => void;
   refresh: () => void;
+  refreshBranchSync: () => void;
   stageAll: (stage: boolean) => Promise<void>;
   stageFile: (filePath: string, stage: boolean) => Promise<void>;
 }
@@ -111,6 +125,8 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
     staged: '',
   });
   const [remotePullRequest, setRemotePullRequest] = useState<RemotePullRequest | null>(null);
+  const [branchSyncStatus, setBranchSyncStatus] = useState<BranchSyncStatus | null>(null);
+  const [prSyncStatus, setPrSyncStatus] = useState<PRSyncStatus | null>(null);
   const [commitFiles, setCommitFiles] = useState<FileChange[]>([]);
   const [selection, setSelection] = useState<Selection>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -121,6 +137,7 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
   const refreshTimerRef = useRef<number | null>(null);
   const lastGitStatusSignatureRef = useRef<string | null>(null);
   const prPollingTimerRef = useRef<number | null>(null);
+  const branchSyncPollingTimerRef = useRef<number | null>(null);
 
   const cancelPending = useCallback(() => {
     abortRef.current?.abort();
@@ -133,6 +150,12 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
       window.clearInterval(prPollingTimerRef.current);
       prPollingTimerRef.current = null;
     }
+    if (branchSyncPollingTimerRef.current) {
+      window.clearInterval(branchSyncPollingTimerRef.current);
+      branchSyncPollingTimerRef.current = null;
+    }
+    // Reset loading state when canceling pending requests to avoid stuck state
+    setIsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -259,6 +282,35 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
     }
   }, [sessionId]);
 
+  const fetchBranchSyncStatus = useCallback(async (): Promise<BranchSyncStatus | null> => {
+    if (!sessionId) return null;
+    try {
+      const result = await API.sessions.getCommitsBehindMain(sessionId);
+      if (!result) return null;
+      return {
+        commitsBehindMain: result.behind,
+        baseBranch: result.baseBranch,
+      };
+    } catch {
+      return null;
+    }
+  }, [sessionId]);
+
+  const fetchPRSyncStatus = useCallback(async (): Promise<PRSyncStatus | null> => {
+    if (!sessionId) return null;
+    try {
+      const result = await API.sessions.getPrRemoteCommits(sessionId);
+      if (!result) return null;
+      return {
+        localAhead: result.ahead,
+        remoteAhead: result.behind,
+        branch: result.branch,
+      };
+    } catch {
+      return null;
+    }
+  }, [sessionId]);
+
   const loadAll = useCallback(async (selectFirst: boolean, options?: { showLoading?: boolean }) => {
     if (!sessionId) return;
 
@@ -310,9 +362,9 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
         setError(err instanceof Error ? err.message : 'Failed to load data');
       }
     } finally {
-      if (!controller.signal.aborted) {
-        if (showLoading) setIsLoading(false);
-      }
+      // Always reset isLoading when showLoading was true, even if aborted
+      // This prevents stuck loading state when requests are canceled
+      if (showLoading) setIsLoading(false);
     }
   }, [sessionId, cancelPending, fetchCommits, fetchWorkingTreeSnapshot, fetchRemotePullRequest, fetchCommitFiles]);
 
@@ -346,6 +398,8 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
       setWorkingTree(null);
       setWorkingTreeDiffs({ all: '', staged: '' });
       setRemotePullRequest(null);
+      setBranchSyncStatus(null);
+      setPrSyncStatus(null);
       setCommitFiles([]);
       setSelection(null);
       setError(null);
@@ -493,6 +547,41 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
     };
   }, [sessionId, fetchRemotePullRequest]);
 
+  // Poll branch sync status every 30 seconds (longer interval since it requires fetch)
+  useEffect(() => {
+    if (!sessionId) {
+      if (branchSyncPollingTimerRef.current) {
+        window.clearInterval(branchSyncPollingTimerRef.current);
+        branchSyncPollingTimerRef.current = null;
+      }
+      return;
+    }
+
+    const pollBranchSyncStatus = async () => {
+      try {
+        const [newBranchSync, newPRSync] = await Promise.all([
+          fetchBranchSyncStatus(),
+          fetchPRSyncStatus(),
+        ]);
+        setBranchSyncStatus(newBranchSync);
+        setPrSyncStatus(newPRSync);
+      } catch {
+        // Ignore polling errors
+      }
+    };
+
+    // Start polling immediately and then every 30 seconds
+    void pollBranchSyncStatus();
+    branchSyncPollingTimerRef.current = window.setInterval(pollBranchSyncStatus, 30_000);
+
+    return () => {
+      if (branchSyncPollingTimerRef.current) {
+        window.clearInterval(branchSyncPollingTimerRef.current);
+        branchSyncPollingTimerRef.current = null;
+      }
+    };
+  }, [sessionId, fetchBranchSyncStatus, fetchPRSyncStatus]);
+
   const selectWorkingTree = useCallback(() => {
     setSelection({ kind: 'working' });
     setCommitFiles([]);
@@ -536,11 +625,27 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
     }
   }, [sessionId, isMutating, fetchWorkingTreeSnapshot]);
 
+  const refreshBranchSync = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const [newBranchSync, newPRSync] = await Promise.all([
+        fetchBranchSyncStatus(),
+        fetchPRSyncStatus(),
+      ]);
+      setBranchSyncStatus(newBranchSync);
+      setPrSyncStatus(newPRSync);
+    } catch {
+      // Ignore errors
+    }
+  }, [sessionId, fetchBranchSyncStatus, fetchPRSyncStatus]);
+
   return {
     commits,
     workingTree,
     workingTreeDiffs,
     remotePullRequest,
+    branchSyncStatus,
+    prSyncStatus,
     commitFiles,
     selection,
     isLoading,
@@ -549,6 +654,7 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
     selectWorkingTree,
     selectCommit,
     refresh,
+    refreshBranchSync,
     stageAll,
     stageFile,
   };

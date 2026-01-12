@@ -172,6 +172,26 @@ export class API {
       }
       return result.data;
     },
+
+    // Branch sync: get commits behind main
+    async getCommitsBehindMain(sessionId: string): Promise<{ behind: number; baseBranch: string } | null> {
+      requireElectron();
+      const result = await window.electronAPI.sessions.getCommitsBehindMain(sessionId);
+      if (!result.success || !result.data) {
+        return null;
+      }
+      return result.data;
+    },
+
+    // Branch sync: get PR remote commits status
+    async getPrRemoteCommits(sessionId: string): Promise<{ ahead: number; behind: number; branch: string | null } | null> {
+      requireElectron();
+      const result = await window.electronAPI.sessions.getPrRemoteCommits(sessionId);
+      if (!result.success || !result.data) {
+        return null;
+      }
+      return result.data;
+    },
   };
 
   static projects = {

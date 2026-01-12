@@ -685,4 +685,148 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       return { success: false, error: error instanceof Error ? error.message : 'Failed to get commit GitHub URL' };
     }
   });
+
+  // ============================================
+  // Branch Sync: Get commits behind main
+  // ============================================
+
+  ipcMain.handle('sessions:get-commits-behind-main', async (_event, sessionId: string) => {
+    try {
+      const session = sessionManager.getSession(sessionId);
+      if (!session?.worktreePath) {
+        return { success: false, error: 'Session worktree not found' };
+      }
+
+      const cwd = session.worktreePath;
+      const baseBranch = session.baseBranch || 'main';
+
+      // Fetch origin to ensure we have latest refs (lightweight, does not record timeline)
+      await gitExecutor.run({
+        sessionId,
+        cwd,
+        argv: ['git', 'fetch', 'origin', baseBranch],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 10_000,
+        meta: { source: 'ipc.git', operation: 'fetch-main' },
+      });
+
+      // Count commits that origin/main has but current branch doesn't
+      // git rev-list HEAD..origin/main --count
+      const result = await gitExecutor.run({
+        sessionId,
+        cwd,
+        argv: ['git', 'rev-list', 'HEAD..origin/' + baseBranch, '--count'],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 5_000,
+        meta: { source: 'ipc.git', operation: 'commits-behind-main' },
+      });
+
+      if (result.exitCode !== 0) {
+        // May fail if origin/main doesn't exist, return 0
+        return { success: true, data: { behind: 0, baseBranch } };
+      }
+
+      const behind = parseInt(result.stdout.trim(), 10) || 0;
+      return { success: true, data: { behind, baseBranch } };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to get commits behind main' };
+    }
+  });
+
+  // ============================================
+  // Branch Sync: Get remote PR commits ahead
+  // ============================================
+
+  ipcMain.handle('sessions:get-pr-remote-commits', async (_event, sessionId: string) => {
+    try {
+      const session = sessionManager.getSession(sessionId);
+      if (!session?.worktreePath) {
+        return { success: false, error: 'Session worktree not found' };
+      }
+
+      const cwd = session.worktreePath;
+
+      // Get current branch name
+      const branchRes = await gitExecutor.run({
+        sessionId,
+        cwd,
+        argv: ['git', 'branch', '--show-current'],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 3_000,
+        meta: { source: 'ipc.git', operation: 'get-branch' },
+      });
+
+      const branch = branchRes.stdout?.trim();
+      if (!branch) {
+        return { success: true, data: { ahead: 0, behind: 0, branch: null } };
+      }
+
+      // Fetch origin branch to get latest refs
+      await gitExecutor.run({
+        sessionId,
+        cwd,
+        argv: ['git', 'fetch', 'origin', branch],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 10_000,
+        meta: { source: 'ipc.git', operation: 'fetch-branch' },
+      });
+
+      // Check if origin/branch exists
+      const refCheckRes = await gitExecutor.run({
+        sessionId,
+        cwd,
+        argv: ['git', 'show-ref', '--verify', '--quiet', `refs/remotes/origin/${branch}`],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 3_000,
+        meta: { source: 'ipc.git', operation: 'check-remote-ref' },
+      });
+
+      if (refCheckRes.exitCode !== 0) {
+        // Remote branch doesn't exist
+        return { success: true, data: { ahead: 0, behind: 0, branch } };
+      }
+
+      // Count commits: local ahead of remote (HEAD..origin/branch)
+      // and remote ahead of local (origin/branch..HEAD)
+      const [aheadRes, behindRes] = await Promise.all([
+        gitExecutor.run({
+          sessionId,
+          cwd,
+          argv: ['git', 'rev-list', `origin/${branch}..HEAD`, '--count'],
+          op: 'read',
+          recordTimeline: false,
+          throwOnError: false,
+          timeoutMs: 5_000,
+          meta: { source: 'ipc.git', operation: 'local-ahead' },
+        }),
+        gitExecutor.run({
+          sessionId,
+          cwd,
+          argv: ['git', 'rev-list', `HEAD..origin/${branch}`, '--count'],
+          op: 'read',
+          recordTimeline: false,
+          throwOnError: false,
+          timeoutMs: 5_000,
+          meta: { source: 'ipc.git', operation: 'remote-ahead' },
+        }),
+      ]);
+
+      const ahead = parseInt(aheadRes.stdout?.trim() || '0', 10) || 0;
+      const behind = parseInt(behindRes.stdout?.trim() || '0', 10) || 0;
+
+      return { success: true, data: { ahead, behind, branch } };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to get PR remote commits' };
+    }
+  });
 }

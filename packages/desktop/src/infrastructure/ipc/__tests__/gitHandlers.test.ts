@@ -320,3 +320,389 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
     });
   });
 });
+
+describe('Git IPC Handlers - Branch Sync Status', () => {
+  let mockIpcMain: MockIpcMain;
+  let mockGitExecutor: { run: ReturnType<typeof vi.fn> };
+  let mockSessionManager: { getSession: ReturnType<typeof vi.fn> };
+  let mockServices: AppServices;
+
+  beforeEach(() => {
+    mockIpcMain = new MockIpcMain();
+
+    mockGitExecutor = {
+      run: vi.fn(),
+    };
+
+    mockSessionManager = {
+      getSession: vi.fn(),
+    };
+
+    mockServices = {
+      gitExecutor: mockGitExecutor,
+      sessionManager: mockSessionManager,
+      gitStagingManager: { stageHunk: vi.fn(), restoreHunk: vi.fn() },
+      gitStatusManager: { refreshSessionGitStatus: vi.fn() },
+      gitDiffManager: { getDiff: vi.fn() },
+      worktreeManager: {},
+      configManager: {},
+    } as unknown as AppServices;
+
+    registerGitHandlers(mockIpcMain as unknown as IpcMain, mockServices);
+  });
+
+  describe('sessions:get-commits-behind-main', () => {
+    const sessionId = 'test-session-123';
+    const worktreePath = '/path/to/worktree';
+
+    beforeEach(() => {
+      mockSessionManager.getSession.mockReturnValue({ worktreePath, baseBranch: 'main' });
+    });
+
+    it('should return error when session has no worktreePath', async () => {
+      mockSessionManager.getSession.mockReturnValue({ worktreePath: null });
+
+      const result = await mockIpcMain.invoke('sessions:get-commits-behind-main', sessionId);
+
+      expect(result).toEqual({ success: false, error: 'Session worktree not found' });
+    });
+
+    it('should return error when session is not found', async () => {
+      mockSessionManager.getSession.mockReturnValue(null);
+
+      const result = await mockIpcMain.invoke('sessions:get-commits-behind-main', sessionId);
+
+      expect(result).toEqual({ success: false, error: 'Session worktree not found' });
+    });
+
+    it('should return commits behind main count', async () => {
+      mockGitExecutor.run
+        // git fetch origin main
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        // git rev-list HEAD..origin/main --count
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '5\n',
+          stderr: '',
+        } as MockRunResult);
+
+      const result = await mockIpcMain.invoke('sessions:get-commits-behind-main', sessionId);
+
+      expect(result).toEqual({
+        success: true,
+        data: { behind: 5, baseBranch: 'main' },
+      });
+    });
+
+    it('should return 0 when branch is up to date', async () => {
+      mockGitExecutor.run
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '0\n',
+          stderr: '',
+        } as MockRunResult);
+
+      const result = await mockIpcMain.invoke('sessions:get-commits-behind-main', sessionId);
+
+      expect(result).toEqual({
+        success: true,
+        data: { behind: 0, baseBranch: 'main' },
+      });
+    });
+
+    it('should use custom baseBranch from session', async () => {
+      mockSessionManager.getSession.mockReturnValue({ worktreePath, baseBranch: 'master' });
+
+      mockGitExecutor.run
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '3\n',
+          stderr: '',
+        } as MockRunResult);
+
+      const result = await mockIpcMain.invoke('sessions:get-commits-behind-main', sessionId);
+
+      expect(result).toEqual({
+        success: true,
+        data: { behind: 3, baseBranch: 'master' },
+      });
+
+      // Verify fetch was called with correct branch
+      const fetchCall = mockGitExecutor.run.mock.calls[0];
+      expect(fetchCall[0].argv).toContain('master');
+    });
+
+    it('should return 0 when origin/main does not exist', async () => {
+      mockGitExecutor.run
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 128, // fatal: ambiguous argument
+          stdout: '',
+          stderr: 'fatal: ambiguous argument',
+        } as MockRunResult);
+
+      const result = await mockIpcMain.invoke('sessions:get-commits-behind-main', sessionId);
+
+      expect(result).toEqual({
+        success: true,
+        data: { behind: 0, baseBranch: 'main' },
+      });
+    });
+
+    it('should handle fetch failure gracefully', async () => {
+      mockGitExecutor.run
+        .mockResolvedValueOnce({
+          exitCode: 1, // fetch fails
+          stdout: '',
+          stderr: 'fatal: could not fetch',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '2\n',
+          stderr: '',
+        } as MockRunResult);
+
+      const result = await mockIpcMain.invoke('sessions:get-commits-behind-main', sessionId);
+
+      // Should still work even if fetch fails (use local refs)
+      expect(result).toEqual({
+        success: true,
+        data: { behind: 2, baseBranch: 'main' },
+      });
+    });
+  });
+
+  describe('sessions:get-pr-remote-commits', () => {
+    const sessionId = 'test-session-123';
+    const worktreePath = '/path/to/worktree';
+
+    beforeEach(() => {
+      mockSessionManager.getSession.mockReturnValue({ worktreePath });
+    });
+
+    it('should return error when session has no worktreePath', async () => {
+      mockSessionManager.getSession.mockReturnValue({ worktreePath: null });
+
+      const result = await mockIpcMain.invoke('sessions:get-pr-remote-commits', sessionId);
+
+      expect(result).toEqual({ success: false, error: 'Session worktree not found' });
+    });
+
+    it('should return error when session is not found', async () => {
+      mockSessionManager.getSession.mockReturnValue(null);
+
+      const result = await mockIpcMain.invoke('sessions:get-pr-remote-commits', sessionId);
+
+      expect(result).toEqual({ success: false, error: 'Session worktree not found' });
+    });
+
+    it('should return ahead and behind counts', async () => {
+      mockGitExecutor.run
+        // git branch --show-current
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: 'feature-branch\n',
+          stderr: '',
+        } as MockRunResult)
+        // git fetch origin feature-branch
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        // git show-ref --verify --quiet refs/remotes/origin/feature-branch
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        // git rev-list origin/feature-branch..HEAD --count (local ahead)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '3\n',
+          stderr: '',
+        } as MockRunResult)
+        // git rev-list HEAD..origin/feature-branch --count (remote ahead)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '2\n',
+          stderr: '',
+        } as MockRunResult);
+
+      const result = await mockIpcMain.invoke('sessions:get-pr-remote-commits', sessionId);
+
+      expect(result).toEqual({
+        success: true,
+        data: { ahead: 3, behind: 2, branch: 'feature-branch' },
+      });
+    });
+
+    it('should return zeros when branch is synced', async () => {
+      mockGitExecutor.run
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: 'main\n',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '0\n',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '0\n',
+          stderr: '',
+        } as MockRunResult);
+
+      const result = await mockIpcMain.invoke('sessions:get-pr-remote-commits', sessionId);
+
+      expect(result).toEqual({
+        success: true,
+        data: { ahead: 0, behind: 0, branch: 'main' },
+      });
+    });
+
+    it('should return zeros when remote branch does not exist', async () => {
+      mockGitExecutor.run
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: 'new-branch\n',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 1, // fetch fails for non-existent branch
+          stdout: '',
+          stderr: 'fatal: could not fetch',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 1, // show-ref fails
+          stdout: '',
+          stderr: '',
+        } as MockRunResult);
+
+      const result = await mockIpcMain.invoke('sessions:get-pr-remote-commits', sessionId);
+
+      expect(result).toEqual({
+        success: true,
+        data: { ahead: 0, behind: 0, branch: 'new-branch' },
+      });
+    });
+
+    it('should return null branch when in detached HEAD state', async () => {
+      mockGitExecutor.run
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '', // Empty for detached HEAD
+          stderr: '',
+        } as MockRunResult);
+
+      const result = await mockIpcMain.invoke('sessions:get-pr-remote-commits', sessionId);
+
+      expect(result).toEqual({
+        success: true,
+        data: { ahead: 0, behind: 0, branch: null },
+      });
+    });
+
+    it('should handle only local commits ahead', async () => {
+      mockGitExecutor.run
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: 'feature\n',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '5\n', // 5 local commits ahead
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '0\n', // 0 remote commits ahead
+          stderr: '',
+        } as MockRunResult);
+
+      const result = await mockIpcMain.invoke('sessions:get-pr-remote-commits', sessionId);
+
+      expect(result).toEqual({
+        success: true,
+        data: { ahead: 5, behind: 0, branch: 'feature' },
+      });
+    });
+
+    it('should handle only remote commits ahead', async () => {
+      mockGitExecutor.run
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: 'feature\n',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '0\n', // 0 local commits ahead
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '4\n', // 4 remote commits ahead
+          stderr: '',
+        } as MockRunResult);
+
+      const result = await mockIpcMain.invoke('sessions:get-pr-remote-commits', sessionId);
+
+      expect(result).toEqual({
+        success: true,
+        data: { ahead: 0, behind: 4, branch: 'feature' },
+      });
+    });
+  });
+});

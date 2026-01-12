@@ -128,6 +128,9 @@ export interface ElectronAPI {
       baseBranch: string;
       ownerRepo: string | null;
     }>>;
+    // Branch sync status helpers
+    getCommitsBehindMain: (sessionId: string) => Promise<IPCResponse<{ behind: number; baseBranch: string }>>;
+    getPrRemoteCommits: (sessionId: string) => Promise<IPCResponse<{ ahead: number; behind: number; branch: string | null }>>;
   };
 
   panels: {

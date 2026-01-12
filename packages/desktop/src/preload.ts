@@ -83,6 +83,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('sessions:get-sync-context', sessionId),
     getPrTemplate: (sessionId: string): Promise<IPCResponse> =>
       ipcRenderer.invoke('sessions:get-pr-template', sessionId),
+    // Branch sync status helpers
+    getCommitsBehindMain: (sessionId: string): Promise<IPCResponse> =>
+      ipcRenderer.invoke('sessions:get-commits-behind-main', sessionId),
+    getPrRemoteCommits: (sessionId: string): Promise<IPCResponse> =>
+      ipcRenderer.invoke('sessions:get-pr-remote-commits', sessionId),
   },
 
   panels: {

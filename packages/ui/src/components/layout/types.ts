@@ -60,6 +60,10 @@ export interface RightPanelProps {
   onCommitClick?: (target: DiffTarget, files: FileChange[]) => void;
   onPushPR?: () => void;
   isPushPRDisabled?: boolean;
+  onUpdateBranch?: () => void;
+  isUpdateBranchDisabled?: boolean;
+  onSyncPR?: () => void;
+  isSyncPRDisabled?: boolean;
 }
 
 export interface DiffOverlayProps {
