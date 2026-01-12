@@ -1,11 +1,13 @@
 import { Sidebar } from './components/Sidebar';
 import { MainLayout } from './components/layout';
 import { useIPCEvents } from './hooks/useIPCEvents';
+import { useWorkspaceStageSync } from './hooks/useWorkspaceStageSync';
 import { ErrorDialog } from './components/ErrorDialog';
 import { useErrorStore } from './stores/errorStore';
 
 export default function App() {
   useIPCEvents();
+  useWorkspaceStageSync();
   const { currentError, clearError } = useErrorStore();
 
   return (

@@ -24,5 +24,6 @@ export interface Session {
   displayOrder?: number;
   toolType?: 'claude' | 'codex' | 'none';
   gitStatus?: GitStatus;
+  workspaceStage?: import('./workspace').WorkspaceStage;
 }
 

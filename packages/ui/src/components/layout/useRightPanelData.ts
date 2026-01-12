@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { API } from '../../utils/api';
 import { withTimeout } from '../../utils/withTimeout';
 import type { FileChange } from './types';
+import { useSessionStore } from '../../stores/sessionStore';
 
 export interface Commit {
   id: number;
@@ -638,6 +639,13 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
       // Ignore errors
     }
   }, [sessionId, fetchBranchSyncStatus, fetchPRSyncStatus]);
+
+  // Sync workspace stage to session store for sidebar display
+  const updateWorkspaceStage = useSessionStore((state) => state.updateWorkspaceStage);
+  useEffect(() => {
+    if (!sessionId) return;
+    updateWorkspaceStage(sessionId, { remotePullRequest, prSyncStatus });
+  }, [sessionId, remotePullRequest, prSyncStatus, updateWorkspaceStage]);
 
   return {
     commits,

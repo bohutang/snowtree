@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { GitStatus, Session } from '../types/session';
+import { getWorkspaceStage, type WorkspaceStageInput } from '../types/workspace';
 
 interface SessionStore {
   sessions: Session[];
@@ -14,6 +15,7 @@ interface SessionStore {
   setActiveSession: (sessionId: string | null) => void;
   updateSessionGitStatus: (sessionId: string, gitStatus: GitStatus) => void;
   setGitStatusLoading: (sessionId: string, loading: boolean) => void;
+  updateWorkspaceStage: (sessionId: string, data: WorkspaceStageInput) => void;
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -79,7 +81,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (loading) next.add(sessionId);
     else next.delete(sessionId);
     set({ gitStatusLoading: next });
-  }
+  },
+
+  updateWorkspaceStage: (sessionId, data) =>
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === sessionId ? { ...s, workspaceStage: getWorkspaceStage(data) } : s
+      ),
+    })),
 }));
 
 // Expose store for E2E testing

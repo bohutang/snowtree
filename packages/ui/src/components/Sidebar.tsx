@@ -4,6 +4,7 @@ import { API } from '../utils/api';
 import { useErrorStore } from '../stores/errorStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { formatDistanceToNow } from '../utils/timestampUtils';
+import { StageBadge } from './layout/StageBadge';
 
 type Project = {
   id: number;
@@ -241,6 +242,14 @@ export function Sidebar() {
 
   const activeSession = useMemo(() => sessions.find((s) => s.id === activeSessionId) || null, [sessions, activeSessionId]);
   const activeWorktreePath = activeSession?.worktreePath || null;
+
+  const sessionsByWorktreePath = useMemo(() => {
+    const map = new Map<string, typeof sessions[number]>();
+    for (const s of sessions) {
+      if (s.worktreePath) map.set(s.worktreePath, s);
+    }
+    return map;
+  }, [sessions]);
 
   const runningWorktreePaths = useMemo(() => {
     const paths = new Set<string>();
@@ -557,6 +566,12 @@ export function Sidebar() {
                                                   style={{ color: 'var(--st-accent)' }}
                                                 />
                                               )}
+                                              {(() => {
+                                                const session = sessionsByWorktreePath.get(worktree.path);
+                                                return session?.workspaceStage ? (
+                                                  <StageBadge stage={session.workspaceStage} />
+                                                ) : null;
+                                              })()}
                                             </div>
                                             {(worktree.createdAt || worktree.lastCommitAt) && (
                                               <span data-testid="worktree-relative-time" className="text-[11px] st-text-faint mt-0.5">

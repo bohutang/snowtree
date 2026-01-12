@@ -488,8 +488,8 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                   </button>
                 )}
 
-                {/* Update from Main */}
-                {onUpdateBranch && (
+                {/* Update from Main - hidden when PR is merged */}
+                {onUpdateBranch && !remotePullRequest?.merged && (
                   <button
                     type="button"
                     onClick={onUpdateBranch}
