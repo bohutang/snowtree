@@ -11,6 +11,18 @@
   margin-bottom: 6px;
   font-size: 0.75rem;
   color: color-mix(in srgb, var(--st-text) 50%, transparent);
+  cursor: pointer;
+  user-select: none;
+}
+
+.thinking-header:hover {
+  color: color-mix(in srgb, var(--st-text) 70%, transparent);
+}
+
+.expand-icon {
+  font-size: 0.6em;
+  opacity: 0.6;
+  transition: transform 0.15s ease;
 }
 
 .thinking-icon {

@@ -18,6 +18,7 @@ import { getShellPath } from '../../infrastructure/command/shellPath';
 import { findNodeExecutable } from '../../infrastructure/utils/nodeFinder';
 import { cliLogger } from '../../infrastructure/logging/cliLogger';
 import type { CliTool } from '../../infrastructure/logging/cliLogger';
+import { DiffMetadataExtractor } from './DiffMetadataExtractor';
 
 import type {
   ExecutorTool,
@@ -431,7 +432,7 @@ export abstract class AbstractExecutor extends EventEmitter {
     });
   }
 
-  protected handleNormalizedEntry(panelId: string, sessionId: string, entry: NormalizedEntry): void {
+  protected async handleNormalizedEntry(panelId: string, sessionId: string, entry: NormalizedEntry): Promise<void> {
     const entryMeta = {
       ...(entry.metadata || {}),
       panelId,
@@ -489,14 +490,29 @@ export abstract class AbstractExecutor extends EventEmitter {
       const cwd = this.sessionManager.getSession(sessionId)?.worktreePath;
       const runtime = this.runtimeMetaByPanel.get(panelId) || {};
 
-      // Extract Edit tool input for diff display
-      const toolInput = enriched.metadata?.input as Record<string, unknown> | undefined;
-      const isEditTool = enriched.toolName === 'Edit';
-      const editMeta = isEditTool && toolInput ? {
-        oldString: toolInput.old_string as string | undefined,
-        newString: toolInput.new_string as string | undefined,
-        filePath: toolInput.file_path as string | undefined,
-      } : {};
+      // Extract diff metadata for Edit, Write, Bash rm, and Codex tools
+      const extractor = new DiffMetadataExtractor({ cwd: cwd || process.cwd() });
+      const diffMetadata = await extractor.extract(
+        enriched.toolName || '',
+        enriched.metadata
+      );
+
+      // Build diff meta for timeline
+      const diffMeta = diffMetadata && diffMetadata.length > 0
+        ? {
+            // For single file, use flat structure (backwards compatible)
+            ...(diffMetadata.length === 1 ? {
+              oldString: diffMetadata[0].oldString,
+              newString: diffMetadata[0].newString,
+              filePath: diffMetadata[0].filePath,
+              isDelete: diffMetadata[0].isDelete,
+              isNewFile: diffMetadata[0].isNewFile,
+            } : {
+              // For multiple files (e.g., rm file1 file2)
+              diffFiles: diffMetadata,
+            }),
+          }
+        : {};
 
       this.recordTimelineCommand({
         sessionId,
@@ -515,7 +531,7 @@ export abstract class AbstractExecutor extends EventEmitter {
           agentQuery: 'query' in action ? (action as { query?: string }).query : undefined,
           agentUrl: 'url' in action ? (action as { url?: string }).url : undefined,
           ...runtime,
-          ...editMeta,
+          ...diffMeta,
         }
       });
       return;

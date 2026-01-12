@@ -417,17 +417,9 @@ const AgentResponse: React.FC<{
   timestamp: string;
   endTimestamp: string;
 }> = ({ messages, commands, status, timestamp: _timestamp, endTimestamp }) => {
-  const [showCommands, setShowCommands] = useState(() => status === 'running');
+  const [showCommands, setShowCommands] = useState(true);
   const userToggledRef = useRef(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (status === 'running') {
-      if (!userToggledRef.current) setShowCommands(true);
-    } else {
-      if (!userToggledRef.current) setShowCommands(false);
-    }
-  }, [status]);
 
   const handleCopy = useCallback(async (text: string, key: string) => {
     try {
@@ -532,11 +524,24 @@ const AgentResponse: React.FC<{
                 const isInterrupted = metaTermination === 'interrupted';
                 const isFailed = !isInterrupted && (cmdStatus === 'failed' || (typeof c.exitCode === 'number' && c.exitCode !== 0));
 
-                // Check for Edit tool diff data
+                // Check for diff data (Edit, Write, Bash rm, Codex tools)
                 const oldString = typeof meta.oldString === 'string' ? meta.oldString : undefined;
                 const newString = typeof meta.newString === 'string' ? meta.newString : undefined;
                 const filePath = typeof meta.filePath === 'string' ? meta.filePath : undefined;
-                const isEditWithDiff = meta.toolName === 'Edit' && oldString && newString;
+                const isDelete = meta.isDelete === true;
+                const isNewFile = meta.isNewFile === true;
+                const diffFiles = meta.diffFiles as Array<{
+                  filePath: string;
+                  oldString: string;
+                  newString: string;
+                  isDelete?: boolean;
+                  isNewFile?: boolean;
+                }> | undefined;
+
+                // Single file diff (Edit, Write, Bash rm single file)
+                const hasSingleDiff = oldString !== undefined || newString !== undefined;
+                // Multiple file diffs (e.g., rm file1 file2)
+                const hasMultipleDiffs = Array.isArray(diffFiles) && diffFiles.length > 0;
 
                 return (
                   <div key={key}>
@@ -567,15 +572,34 @@ const AgentResponse: React.FC<{
                         </button>
                       </div>
                     </div>
-                    {isEditWithDiff && (
+                    {hasSingleDiff && (
                       <div className="command-diff">
+                        {(isDelete || isNewFile) && (
+                          <div className="diff-label">
+                            {isDelete ? 'Deleted' : 'New file'}
+                          </div>
+                        )}
                         <InlineDiffViewer
-                          oldString={oldString}
-                          newString={newString}
+                          oldString={oldString ?? ''}
+                          newString={newString ?? ''}
                           filePath={filePath}
                         />
                       </div>
                     )}
+                    {hasMultipleDiffs && diffFiles.map((df, i) => (
+                      <div key={df.filePath || i} className="command-diff">
+                        {(df.isDelete || df.isNewFile) && (
+                          <div className="diff-label">
+                            {df.isDelete ? 'Deleted' : 'New file'}
+                          </div>
+                        )}
+                        <InlineDiffViewer
+                          oldString={df.oldString}
+                          newString={df.newString}
+                          filePath={df.filePath}
+                        />
+                      </div>
+                    ))}
                     {showStdout && (
                       <pre className="command-output stdout">{stdout}</pre>
                     )}

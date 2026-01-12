@@ -124,8 +124,6 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
     setError(null);
 
     try {
-      const workingScope = target.kind === 'working' ? ((target as any).scope || 'all') : null;
-
       if (target.kind === 'working') {
         // For working tree, always load all + staged + unstaged diffs so we can determine per-hunk status in one view (Zed-like).
         const [allRes, stagedRes, unstagedRes] = await Promise.all([
@@ -163,15 +161,6 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
         } else {
           // Project diff view: expand each file to include unchanged lines between hunks (Zed-like).
           setFileSource(null);
-
-          const wt = (allRes.data as { workingTree?: unknown } | undefined)?.workingTree as
-            | { staged: Array<{ path: string; isNew?: boolean }>; unstaged: Array<{ path: string; isNew?: boolean }>; untracked: Array<{ path: string; isNew?: boolean }> }
-            | undefined;
-
-          const untracked = new Set<string>([
-            ...(wt?.untracked || []).map((f) => f.path),
-            ...(wt?.staged || []).filter((f) => Boolean((f as any).isNew)).map((f) => f.path),
-          ]);
 
           const changed = Array.isArray((allRes.data as { changedFiles?: unknown } | undefined)?.changedFiles)
             ? (((allRes.data as { changedFiles?: unknown }).changedFiles as unknown[]) || []).filter((v): v is string => typeof v === 'string' && v.trim().length > 0)

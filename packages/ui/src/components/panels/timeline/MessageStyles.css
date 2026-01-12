@@ -173,11 +173,20 @@
   background: color-mix(in srgb, var(--st-danger) 10%, #000);
 }
 
-/* Command diff (for Edit tool) */
+/* Command diff (for Edit, Write, Bash rm, Codex tools) */
 .command-diff {
   margin: 6px 0 0 22px;
   border-radius: 6px;
   overflow: hidden;
+}
+
+.diff-label {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--st-text-muted);
+  background: var(--st-surface);
+  border-bottom: 1px solid var(--st-border-variant);
 }
 
 /* Status indicators */
