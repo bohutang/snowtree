@@ -100,6 +100,43 @@ const getCommandKind = (eventKind: string): 'cli' | 'git' | 'worktree' => {
   }
 };
 
+const formatSeconds = (durationMs: number): string => {
+  const ms = Number.isFinite(durationMs) ? durationMs : 0;
+  const seconds = Math.max(0, ms) / 1000;
+  return `${seconds.toFixed(1)}s`;
+};
+
+const getAgentModelLabelFromCommands = (commands: CommandInfo[]): string | null => {
+  const modelsByAgent = new Map<'Codex' | 'Claude', Set<string>>();
+  for (const c of commands) {
+    if (c.kind !== 'cli') continue;
+    const rawTool = typeof c.tool === 'string' ? c.tool : '';
+    const tool = rawTool.toLowerCase();
+    const agent =
+      tool.includes('codex') ? 'Codex'
+        : tool.includes('claude') ? 'Claude'
+          : null;
+    if (!agent) continue;
+
+    const meta = c.meta || {};
+    const model = typeof (meta as { cliModel?: unknown }).cliModel === 'string'
+      ? String((meta as { cliModel: string }).cliModel).trim()
+      : '';
+    const set = modelsByAgent.get(agent) || new Set<string>();
+    if (model) set.add(model);
+    modelsByAgent.set(agent, set);
+  }
+
+  if (modelsByAgent.size === 0) return null;
+  if (modelsByAgent.size > 1) return 'Mixed';
+
+  const [agent, models] = Array.from(modelsByAgent.entries())[0];
+  const arr = Array.from(models.values());
+  if (arr.length === 0) return agent;
+  if (arr.length === 1) return `${agent} ${arr[0]}`;
+  return `${agent} ${arr[0]} (+${arr.length - 1})`;
+};
+
 // Build timeline items - groups everything between user messages into agent responses
 const buildItems = (
   events: TimelineEvent[],
@@ -423,6 +460,7 @@ const AgentResponse: React.FC<{
   const [showCommands, setShowCommands] = useState(true);
   const userToggledRef = useRef(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const agentLabel = useMemo(() => getAgentModelLabelFromCommands(commands), [commands]);
 
   const handleCopy = useCallback(async (text: string, key: string) => {
     try {
@@ -462,6 +500,13 @@ const AgentResponse: React.FC<{
           >
             <ChevronRight className={`commands-expand-icon ${showCommands ? 'expanded' : ''}`} size={14} />
             <div className="commands-stats">
+              {agentLabel && (
+                <span className="commands-stat-item">
+                  <span className="commands-stat-value" style={{ color: colors.accent }}>
+                    {agentLabel}
+                  </span>
+                </span>
+              )}
               <span className="commands-stat-item">
                 <span className="commands-stat-value">{commands.length}</span>
                 <span> command{commands.length > 1 ? 's' : ''}</span>
@@ -493,7 +538,7 @@ const AgentResponse: React.FC<{
               )}
               {totalDuration > 0 && status !== 'running' && (
                 <span className="commands-duration">
-                  {Math.round(totalDuration)}ms
+                  {formatSeconds(totalDuration)}
                 </span>
               )}
             </div>
