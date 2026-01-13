@@ -1,5 +1,6 @@
 import type { IpcMain } from 'electron';
 import * as fs from 'fs';
+import * as path from 'path';
 import type { AppServices } from './types';
 import { panelManager } from '../../features/panels/PanelManager';
 import { ClaudePanelManager } from '../../features/panels/ai/ClaudePanelManager';
@@ -24,7 +25,8 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
     logger,
     configManager,
     worktreeManager,
-    databaseService
+    databaseService,
+    gitExecutor
   } = services;
 
   let claudePanelManager: ClaudePanelManager | null = null;
@@ -44,6 +46,81 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
     return codexPanelManager;
   };
 
+  /**
+   * Try to recover worktree path if it was renamed.
+   * If the folder was renamed, also rename the git branch to match.
+   * Returns the (possibly updated) worktree path, or null if recovery failed.
+   */
+  async function tryRecoverWorktreePath(sessionId: string): Promise<string | null> {
+    const session = sessionManager.getSession(sessionId);
+    if (!session?.worktreePath) return null;
+
+    let worktreePath = session.worktreePath;
+
+    // If path exists, no recovery needed
+    if (fs.existsSync(worktreePath)) {
+      return worktreePath;
+    }
+
+    // Get the database session to access worktree_name
+    const dbSession = sessionManager.getDbSession(sessionId);
+    const worktreeName = dbSession?.worktree_name;
+
+    // Try to find the worktree by branch name
+    const project = session.projectId ? databaseService.getProject(session.projectId) : null;
+    if (!project || !worktreeName) {
+      return null;
+    }
+
+    try {
+      const worktrees = await worktreeManager.listWorktreesDetailed(project.path, sessionId);
+      // Find worktree by branch name (worktreeName is usually the branch name)
+      const matchingWorktree = worktrees.find(w => w.branch === worktreeName);
+      if (!matchingWorktree) {
+        return null;
+      }
+
+      // Found the worktree at a new path
+      worktreePath = matchingWorktree.path;
+
+      // Extract new folder name to rename git branch
+      const newFolderName = path.basename(worktreePath);
+      let newBranchName: string | null = null;
+
+      if (newFolderName !== worktreeName) {
+        // Folder was renamed, rename git branch to match
+        try {
+          await gitExecutor.run({
+            sessionId,
+            cwd: worktreePath,
+            argv: ['git', 'branch', '-m', worktreeName, newFolderName],
+            op: 'write',
+            recordTimeline: false,
+            throwOnError: true,
+            timeoutMs: 5_000,
+            meta: { source: 'ipc.session', operation: 'rename-branch' },
+          });
+          newBranchName = newFolderName;
+          logger?.info(`[IPC] Renamed git branch: ${worktreeName} -> ${newFolderName}`);
+        } catch (e) {
+          logger?.warn(`[IPC] Failed to rename git branch: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      // Update session with new path and branch name
+      sessionManager.updateSession(sessionId, {
+        worktreePath,
+        worktreeName: newBranchName || worktreeName
+      });
+      logger?.info(`[IPC] Recovered worktree path: ${session.worktreePath} -> ${worktreePath}`);
+
+      return worktreePath;
+    } catch (e) {
+      logger?.warn(`[IPC] Failed to recover worktree path: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+  }
+
   ipcMain.handle('sessions:get-all', async () => {
     try {
       return { success: true, data: sessionManager.getAllSessions() };
@@ -54,6 +131,9 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
 
   ipcMain.handle('sessions:get', async (_event, sessionId: string) => {
     try {
+      // Try to recover worktree path if it was renamed (also renames git branch)
+      await tryRecoverWorktreePath(sessionId);
+
       const session = sessionManager.getSession(sessionId);
       if (!session) return { success: false, error: 'Session not found' };
       return { success: true, data: session };
@@ -163,38 +243,13 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
       if (!session?.worktreePath) return { success: false, error: 'Session worktree not available' };
       sessionIdForError = session.id;
 
-      // Check if worktree path still exists; if not, try to recover it
-      let worktreePath = session.worktreePath;
-      if (!fs.existsSync(worktreePath)) {
-        // Get the database session to access worktree_name
-        const dbSession = sessionManager.getDbSession(session.id);
-        const worktreeName = dbSession?.worktree_name;
-
-        // Try to find the worktree by branch name
-        const project = session.projectId ? databaseService.getProject(session.projectId) : null;
-        if (project && worktreeName) {
-          try {
-            const worktrees = await worktreeManager.listWorktreesDetailed(project.path, session.id);
-            // Find worktree by branch name (worktreeName is usually the branch name)
-            const matchingWorktree = worktrees.find(w => w.branch === worktreeName);
-            if (matchingWorktree) {
-              // Found the worktree at a new path - update session
-              worktreePath = matchingWorktree.path;
-              sessionManager.updateSession(session.id, { worktreePath, worktreeName });
-              logger?.info(`[IPC] Recovered worktree path: ${session.worktreePath} -> ${worktreePath}`);
-            }
-          } catch (e) {
-            logger?.warn(`[IPC] Failed to recover worktree path: ${e instanceof Error ? e.message : String(e)}`);
-          }
-        }
-
-        // If still not found, return an error
-        if (!fs.existsSync(worktreePath)) {
-          return {
-            success: false,
-            error: `Workspace directory not found: ${session.worktreePath}\n\nThe workspace may have been renamed or deleted. Please create a new session.`
-          };
-        }
+      // Check if worktree path still exists; if not, try to recover it (also renames git branch)
+      const worktreePath = await tryRecoverWorktreePath(session.id);
+      if (!worktreePath) {
+        return {
+          success: false,
+          error: `Workspace directory not found: ${session.worktreePath}\n\nThe workspace may have been renamed or deleted. Please create a new session.`
+        };
       }
 
       sessionManager.updateSessionStatus(session.id, 'running');
