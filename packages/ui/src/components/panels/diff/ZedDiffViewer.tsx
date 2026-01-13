@@ -1217,6 +1217,25 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                               : first;
                         const changeKey = getChangeKey(anchorChange);
 
+                        // Badge element for staged hunks - always placed with anchor for correct positioning
+                        const badgeElement = (!isCommitView && hunkStatus === 'staged' && changedIndices.length > 0) ? (
+                          <div data-testid="diff-hunk-staged-badge-anchor" className="st-diff-hunk-staged-badge-anchor">
+                            <div className="st-hunk-staged-badge-sticky" aria-label="Hunk staged">
+                              <div className="st-hunk-staged-badge" title="Staged" aria-hidden="true">
+                                <svg viewBox="0 0 16 16" width="10" height="10" fill="none">
+                                  <path
+                                    d="M3.5 8.2l2.6 2.6L12.6 4.6"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              </div>
+                            </div>
+                          </div>
+                        ) : null;
+
                         const anchorElement: React.ReactElement | null = isCommitView ? null : (
                           <div
                             data-testid="diff-hunk-controls"
@@ -1224,41 +1243,11 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                             data-hunk-anchor="true"
                             className={`st-diff-hunk-actions-anchor ${statusClass} ${kindClass} ${isFocused ? 'st-hunk-focused' : ''} ${isHovered ? 'st-hunk-hovered' : ''}`}
                           >
+                            {badgeElement}
                           </div>
                         );
 
-                        const out: Array<readonly [string, React.ReactElement | null]> = [[changeKey, anchorElement] as const];
-
-                        // Persistent staged badge: place it at the top of the changed range
-                        if (!isCommitView && hunkStatus === 'staged' && changedIndices.length > 0) {
-                          const firstIdx = changedIndices[0]!;
-                          const badgeChange = changes[firstIdx]!;
-                          const badgeKey = getChangeKey(badgeChange);
-
-                          const badgeElement = (
-                            <div data-testid="diff-hunk-staged-badge-anchor" className="st-diff-hunk-staged-badge-anchor">
-                              <div className="st-hunk-staged-badge-sticky" aria-label="Hunk staged">
-                                <div className="st-hunk-staged-badge" title="Staged" aria-hidden="true">
-                                  <svg viewBox="0 0 16 16" width="10" height="10" fill="none">
-                                    <path
-                                      d="M3.5 8.2l2.6 2.6L12.6 4.6"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    />
-                                  </svg>
-                                </div>
-                              </div>
-                            </div>
-                          );
-
-                          // Avoid colliding with the controls anchor when the hunk is only one changed line.
-                          if (badgeKey !== changeKey) out.push([badgeKey, badgeElement] as const);
-                          else out[0] = [changeKey, <>{anchorElement}{badgeElement}</>] as const;
-                        }
-
-                        return out;
+                        return [[changeKey, anchorElement] as const];
                       })
                       .filter((e): e is readonly [string, React.ReactElement | null] => e !== null)
                   ) as Record<string, React.ReactElement | null>}
