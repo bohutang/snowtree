@@ -400,6 +400,8 @@ export const MainLayout: React.FC = React.memo(() => {
 
       if (e.shiftKey) {
         setExecutionMode(executionMode === 'execute' ? 'plan' : 'execute');
+        // Keep chat-style focus on the input after hotkeys, even if a button stole focus.
+        setInputFocusRequestId((prev) => prev + 1);
         return;
       }
 
@@ -407,6 +409,8 @@ export const MainLayout: React.FC = React.memo(() => {
       const currentIndex = tools.indexOf(selectedTool);
       const nextIndex = (currentIndex + 1) % tools.length;
       setSelectedTool(tools[nextIndex]);
+      // Keep chat-style focus on the input after hotkeys, even if a button stole focus.
+      setInputFocusRequestId((prev) => prev + 1);
     };
 
     window.addEventListener('keydown', handleTabKey, { capture: true });

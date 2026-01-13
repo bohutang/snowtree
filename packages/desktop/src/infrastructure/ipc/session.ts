@@ -7,6 +7,7 @@ import { ClaudePanelManager } from '../../features/panels/ai/ClaudePanelManager'
 import { CodexPanelManager } from '../../features/panels/ai/CodexPanelManager';
 import type { AIPanelState } from '@snowtree/core/types/aiPanelConfig';
 import { randomUUID } from 'crypto';
+import { persistRendererImageAttachments } from '../utils/imageAttachments';
 
 type MinimalCreateSessionRequest = {
   projectId: number;
@@ -254,8 +255,18 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
 
       sessionManager.updateSessionStatus(session.id, 'running');
 
-      const messageContent = images && images.length > 0
-        ? `${input}\n\n[${images.length} image(s) attached]`
+      let imagePaths: string[] = [];
+      if (images && images.length > 0) {
+        try {
+          imagePaths = persistRendererImageAttachments(session.id, images).imagePaths;
+        } catch (err) {
+          logger?.warn?.('[panels:continue] Failed to persist image attachments; sending text-only', err as Error);
+          imagePaths = [];
+        }
+      }
+
+      const messageContent = imagePaths.length > 0
+        ? `${input}\n\n[${imagePaths.length} image(s) attached]`
         : input;
       sessionManager.addPanelConversationMessage(panelId, 'user', messageContent);
 
@@ -271,7 +282,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
         }
 
         if (claudeExecutor.isRunning(panelId)) {
-          manager.sendInputToPanel(panelId, input);
+          manager.sendInputToPanel(panelId, input, imagePaths);
         } else {
           const history = sessionManager.getPanelConversationMessages(panelId);
           await manager.continuePanel({
@@ -280,6 +291,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
             prompt: input,
             conversationHistory: history,
             planMode,
+            imagePaths,
           });
         }
         return { success: true };
@@ -293,7 +305,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
         }
 
         if (codexExecutor.isRunning(panelId)) {
-          manager.sendInputToPanel(panelId, input);
+          manager.sendInputToPanel(panelId, input, imagePaths);
         } else {
           const history = sessionManager.getPanelConversationMessages(panelId);
           await manager.continuePanel({
@@ -302,6 +314,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
             prompt: input,
             conversationHistory: history,
             planMode,
+            imagePaths,
           });
         }
         return { success: true };

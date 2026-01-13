@@ -942,8 +942,8 @@ export abstract class AbstractExecutor extends EventEmitter {
     );
   }
 
-  /** Send input to process */
-  sendInput(panelId: string, input: string): void {
+  /** Send input to process (optionally with local image paths, if supported by the executor). */
+  sendInput(panelId: string, input: string, _imagePaths?: string[]): void {
     const proc = this.processes.get(panelId);
     if (!proc) {
       throw new Error(`No process found for panel ${panelId}`);

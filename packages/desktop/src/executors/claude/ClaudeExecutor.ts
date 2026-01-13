@@ -98,6 +98,10 @@ export class ClaudeExecutor extends AbstractExecutor {
 
   buildCommandArgs(options: ExecutorSpawnOptions): string[] {
     const { prompt, isResume, agentSessionId } = options as ClaudeSpawnOptions;
+    const imagePaths =
+      Array.isArray((options as unknown as { imagePaths?: unknown }).imagePaths)
+        ? ((options as unknown as { imagePaths: unknown[] }).imagePaths.filter((p): p is string => typeof p === 'string' && p.trim().length > 0))
+        : [];
 
     const args: string[] = [
       '--verbose',
@@ -126,9 +130,25 @@ export class ClaudeExecutor extends AbstractExecutor {
       args.push('--resume', agentSessionId);
     }
 
-    // Add prompt
-    if (prompt) {
-      args.push('-p', prompt);
+    const basePrompt = String(prompt ?? '');
+    const promptWithAttachments =
+      imagePaths.length > 0
+        ? [
+            basePrompt,
+            '',
+            'Attached images:',
+            ...imagePaths.map((p) => {
+              const rel = path.relative(options.worktreePath, p);
+              return `@${rel.startsWith('..') ? p : rel}`;
+            }),
+          ]
+            .filter(Boolean)
+            .join('\n')
+        : basePrompt;
+
+    // Add prompt (Claude requires -p to run non-interactively; allow empty prompt if images are present)
+    if (promptWithAttachments.length > 0 || imagePaths.length > 0) {
+      args.push('-p', promptWithAttachments);
     }
 
     return args;

@@ -810,18 +810,45 @@ export class CodexExecutor extends AbstractExecutor {
   async sendUserMessage(
     panelId: string,
     conversationId: string,
-    message: string
+    message: string,
+    imagePaths?: string[]
   ): Promise<void> {
     const rpcId = this.nextRequestId();
     this.enqueuePendingUserTurn(panelId, rpcId);
     this.warnedSilentTurnRpcIds.delete(rpcId);
+
+    const normalizedMessage = String(message ?? '');
+    const normalizedImagePaths = Array.isArray(imagePaths)
+      ? imagePaths.filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+      : [];
+
+    const items: Array<{ type: string; data: Record<string, unknown> }> = [];
+    if (normalizedMessage.trim().length > 0) {
+      items.push({ type: 'text', data: { text: normalizedMessage } });
+    }
+    if (normalizedImagePaths.length > 0) {
+      // Always include a small mapping block so `[imgN]` pills from the UI remain meaningful.
+      items.push({
+        type: 'text',
+        data: {
+          text: `Attached images:\n${normalizedImagePaths.map((p, i) => `[img${i + 1}] ${p}`).join('\n')}`,
+        },
+      });
+      for (const p of normalizedImagePaths) {
+        items.push({ type: 'localImage', data: { path: p } });
+      }
+    }
+    if (items.length === 0) {
+      // Codex requires at least one input item; send an explicit empty text item.
+      items.push({ type: 'text', data: { text: '' } });
+    }
 
     const request: JsonRpcRequest = {
       id: rpcId,
       method: 'sendUserMessage',
       params: {
         conversationId,
-        items: [{ type: 'text', data: { text: message } }],
+        items,
       }
     };
 
@@ -927,7 +954,7 @@ export class CodexExecutor extends AbstractExecutor {
    * Spawn the app-server process and start/resume a conversation.
    */
   async spawn(options: ExecutorSpawnOptions): Promise<void> {
-    const { panelId, worktreePath, prompt } = options;
+    const { panelId, worktreePath, prompt, imagePaths } = options;
     const codexOptions = options as CodexSpawnOptions;
     const isResume = Boolean(options.isResume);
     const resumePath = typeof options.agentSessionId === 'string' ? options.agentSessionId : '';
@@ -976,8 +1003,8 @@ export class CodexExecutor extends AbstractExecutor {
     await this.addConversationListener(panelId, conversationId);
 
     // Send initial prompt
-    if (prompt) {
-      await this.sendUserMessage(panelId, conversationId, prompt);
+    if ((prompt && String(prompt).length > 0) || (Array.isArray(imagePaths) && imagePaths.length > 0)) {
+      await this.sendUserMessage(panelId, conversationId, prompt, imagePaths);
     }
   }
 
@@ -986,12 +1013,12 @@ export class CodexExecutor extends AbstractExecutor {
     super.sendInput(panelId, '\x03');
   }
 
-  sendInput(panelId: string, input: string): void {
+  sendInput(panelId: string, input: string, imagePaths?: string[]): void {
     const convo = this.conversationIdByPanel.get(panelId);
     if (!convo?.conversationId) {
       throw new Error(`Codex conversation not initialized for panel ${panelId}`);
     }
-    void this.sendUserMessage(panelId, convo.conversationId, input);
+    void this.sendUserMessage(panelId, convo.conversationId, input, imagePaths);
   }
 }
 

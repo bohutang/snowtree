@@ -197,11 +197,16 @@ export abstract class AbstractAIPanelManager {
     this.trackPromptSubmission(panelId, prompt);
 
     // Build spawn options
+    const imagePaths =
+      Array.isArray((config as unknown as { imagePaths?: unknown }).imagePaths)
+        ? ((config as unknown as { imagePaths: unknown[] }).imagePaths.filter((p): p is string => typeof p === 'string' && p.trim().length > 0))
+        : undefined;
     const spawnOptions: ExecutorSpawnOptions = {
       panelId,
       sessionId: resolvedSessionId,
       worktreePath,
       prompt,
+      imagePaths,
       ...this.extractSpawnOptions(config, mapping)
     };
 
@@ -237,11 +242,16 @@ export abstract class AbstractAIPanelManager {
     const hasResumeToken = typeof mapping.agentSessionId === 'string' && mapping.agentSessionId.length > 0;
 
     // Build spawn options with resume
+    const imagePaths =
+      Array.isArray((config as unknown as { imagePaths?: unknown }).imagePaths)
+        ? ((config as unknown as { imagePaths: unknown[] }).imagePaths.filter((p): p is string => typeof p === 'string' && p.trim().length > 0))
+        : undefined;
     const spawnOptions: ExecutorSpawnOptions = {
       panelId,
       sessionId: mapping.sessionId,
       worktreePath,
       prompt,
+      imagePaths,
       isResume: hasResumeToken,
       agentSessionId: hasResumeToken ? mapping.agentSessionId : undefined,
       ...this.extractSpawnOptions(config, mapping)
@@ -266,14 +276,14 @@ export abstract class AbstractAIPanelManager {
   /**
    * Send input to a panel
    */
-  sendInputToPanel(panelId: string, input: string): void {
+  sendInputToPanel(panelId: string, input: string, imagePaths?: string[]): void {
     const mapping = this.panelMappings.get(panelId);
     if (!mapping) {
       throw new Error(`Panel ${panelId} not registered`);
     }
 
     this.logger?.verbose(`[${this.getAgentName()}PanelManager] Sending input to panel ${panelId}`);
-    this.executor.sendInput(panelId, input);
+    this.executor.sendInput(panelId, input, imagePaths);
   }
 
   /**

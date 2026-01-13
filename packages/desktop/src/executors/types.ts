@@ -17,6 +17,11 @@ export interface ExecutorSpawnOptions {
   sessionId: string;
   worktreePath: string;
   prompt: string;
+  /**
+   * Local image file paths to attach to the prompt (renderer sends data URLs,
+   * main process persists them to files and passes paths here).
+   */
+  imagePaths?: string[];
   isResume?: boolean;
   agentSessionId?: string;
   model?: string;

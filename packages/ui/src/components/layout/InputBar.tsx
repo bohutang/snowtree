@@ -4,8 +4,13 @@ import type { InputBarProps, CLITool, ImageAttachment, ExecutionMode } from './t
 import { API } from '../../utils/api';
 import { withTimeout } from '../../utils/withTimeout';
 import type { TimelineEvent } from '../../types/timeline';
+import { clearSessionDraft, getSessionDraft, setSessionDraft } from './sessionDraftCache';
 
-const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/tiff'];
+const IS_MAC =
+  typeof navigator !== 'undefined' &&
+  // `navigator.platform` is deprecated but still present in Electron/Chromium; keep a UA fallback.
+  (/Mac/i.test(navigator.platform || '') || /Mac OS X/i.test(navigator.userAgent || ''));
 
 const BlockCursor: React.FC<{
   editorRef: React.RefObject<HTMLDivElement | null>;
@@ -431,6 +436,9 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
   const historyIndexRef = useRef<number | null>(null); // index into inputHistoryRef.current
   const draftBeforeHistoryRef = useRef<string>('');
   const historyNavPrimedRef = useRef<'up' | 'down' | null>(null);
+  const imageAttachmentsRef = useRef<ImageAttachment[]>([]);
+  const restoringDraftRef = useRef(false);
+  const draftSaveRafRef = useRef<number | null>(null);
   const emitSelectionChange = useCallback(() => {
     try {
       document.dispatchEvent(new Event('selectionchange'));
@@ -438,6 +446,29 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       // best-effort
     }
   }, []);
+
+  useEffect(() => {
+    imageAttachmentsRef.current = imageAttachments;
+  }, [imageAttachments]);
+
+  const saveDraftNow = useCallback((sessionId: string) => {
+    if (restoringDraftRef.current) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const html = editor.innerHTML || '';
+    const images = imageAttachmentsRef.current;
+    setSessionDraft(sessionId, { html, images });
+  }, []);
+
+  const scheduleDraftSave = useCallback((sessionId: string) => {
+    if (restoringDraftRef.current) return;
+    if (draftSaveRafRef.current !== null) return;
+    draftSaveRafRef.current = requestAnimationFrame(() => {
+      draftSaveRafRef.current = null;
+      saveDraftNow(sessionId);
+    });
+  }, [saveDraftNow]);
 
   const getEditorText = useCallback(() => {
     if (!editorRef.current) return '';
@@ -601,6 +632,51 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     });
   }, [imageAttachments.length, insertImageTag]);
 
+  const pasteFromNavigatorClipboard = useCallback(async () => {
+    try {
+      if (navigator.clipboard?.read) {
+        const clipboardItems = await navigator.clipboard.read();
+        let hasImage = false;
+        let hasText = false;
+
+        for (const item of clipboardItems) {
+          if (item.types.some((type) => ACCEPTED_IMAGE_TYPES.includes(type))) {
+            hasImage = true;
+            for (const type of item.types) {
+              if (ACCEPTED_IMAGE_TYPES.includes(type)) {
+                const blob = await item.getType(type);
+                const file = new File([blob], 'clipboard.png', { type });
+                await addImageAttachment(file);
+                break;
+              }
+            }
+          }
+          if (item.types.includes('text/plain')) {
+            hasText = true;
+          }
+        }
+
+        if (hasText && !hasImage) {
+          const text = await navigator.clipboard.readText();
+          insertTextAtCursor(text);
+        }
+        return;
+      }
+
+      // Fallback: text-only.
+      const text = await navigator.clipboard.readText();
+      insertTextAtCursor(text);
+    } catch {
+      // If async clipboard read isn't available/allowed (common in tests), fall back to readText.
+      try {
+        const text = await navigator.clipboard?.readText?.();
+        if (typeof text === 'string' && text.length > 0) insertTextAtCursor(text);
+      } catch {
+        // best-effort
+      }
+    }
+  }, [addImageAttachment, insertTextAtCursor]);
+
   const handleEditorPaste = useCallback(async (e: React.ClipboardEvent<HTMLDivElement>) => {
     // Always prevent default and handle manually
     e.preventDefault();
@@ -660,6 +736,45 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     }
   }, [emitSelectionChange]);
 
+  // Restore unsent draft (text + image pills) when switching sessions.
+  useEffect(() => {
+    const sessionId = session.id;
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    restoringDraftRef.current = true;
+    const draft = getSessionDraft(sessionId);
+    if (draft) {
+      editor.innerHTML = draft.html;
+      setImageAttachments(draft.images);
+    } else {
+      editor.innerHTML = '';
+      setImageAttachments([]);
+    }
+
+    // Reset selection-related refs; old nodes may no longer exist.
+    savedSelectionRef.current = null;
+    historyIndexRef.current = null;
+    draftBeforeHistoryRef.current = '';
+    historyNavPrimedRef.current = null;
+
+    restoringDraftRef.current = false;
+
+    // Place caret at end for consistent typing UX.
+    requestAnimationFrame(() => moveCursorToEnd());
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+    emitSelectionChange();
+
+    // Save current session draft when switching away/unmounting.
+    return () => {
+      if (draftSaveRafRef.current !== null) {
+        cancelAnimationFrame(draftSaveRafRef.current);
+        draftSaveRafRef.current = null;
+      }
+      saveDraftNow(sessionId);
+    };
+  }, [emitSelectionChange, moveCursorToEnd, saveDraftNow, session.id]);
+
   const handleEditorCopy = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
     void e;
     // Allow the browser to perform the copy. Then collapse selection and move caret to the end,
@@ -675,6 +790,15 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     requestAnimationFrame(() => moveCursorToEnd());
   }, [moveCursorToEnd]);
 
+  const handleEditorInput = useCallback(() => {
+    scheduleDraftSave(session.id);
+  }, [scheduleDraftSave, session.id]);
+
+  useEffect(() => {
+    // Persist draft when image attachments change (e.g., paste/remove pill).
+    scheduleDraftSave(session.id);
+  }, [imageAttachments, scheduleDraftSave, session.id]);
+
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
@@ -683,10 +807,17 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       const currentPills = editor.querySelectorAll('[data-image-id]');
       const currentIds = new Set(Array.from(currentPills).map(p => p.getAttribute('data-image-id')));
       
-      setImageAttachments((prev) => prev.filter((img) => currentIds.has(img.id)));
+      setImageAttachments((prev) => {
+        if (prev.length === 0) return prev;
+        const next = prev.filter((img) => currentIds.has(img.id));
+        if (next.length === prev.length) return prev;
+        return next;
+      });
     });
 
-    observer.observe(editor, { childList: true, subtree: true, characterData: true });
+    // Only observe structural changes. Observing `characterData` makes this fire on every keystroke,
+    // which is expensive and can create feedback loops.
+    observer.observe(editor, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, []);
 
@@ -705,6 +836,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     }
 
     onSend(text, imageAttachments.length > 0 ? imageAttachments : undefined, executionMode === 'plan');
+    clearSessionDraft(session.id);
     if (editorRef.current) {
       const editor = editorRef.current;
       editor.innerHTML = '';
@@ -831,6 +963,13 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       return;
     }
 
+    // macOS convenience: allow Ctrl+V to paste images/text (Cmd+V is handled by the paste event).
+    if (IS_MAC && e.ctrlKey && !e.metaKey && (e.key === 'v' || e.key === 'V')) {
+      e.preventDefault();
+      void pasteFromNavigatorClipboard();
+      return;
+    }
+
     // Input history navigation (shell-like).
     // - First ArrowUp/Down jumps caret to start/end.
     // - Second ArrowUp/Down (when already at boundary) cycles through sent prompts.
@@ -913,7 +1052,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       e.preventDefault();
       handleSubmit();
     }
-  }, [getEditorText, handleSubmit, isCaretAtBoundary, isRunning, moveCaretToBoundary, setEditorTextAndMoveCaretToEnd]);
+  }, [getEditorText, handleSubmit, isCaretAtBoundary, isRunning, moveCaretToBoundary, pasteFromNavigatorClipboard, setEditorTextAndMoveCaretToEnd]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -1010,40 +1149,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
 
         editor.focus();
         setTimeout(async () => {
-          try {
-            const clipboardItems = await navigator.clipboard.read();
-            let hasImage = false;
-            let hasText = false;
-
-            for (const item of clipboardItems) {
-              if (item.types.some(type => ACCEPTED_IMAGE_TYPES.includes(type))) {
-                hasImage = true;
-                for (const type of item.types) {
-                  if (ACCEPTED_IMAGE_TYPES.includes(type)) {
-                    const blob = await item.getType(type);
-                    const file = new File([blob], 'clipboard.png', { type });
-                    await addImageAttachment(file);
-                    break;
-                  }
-                }
-              }
-              if (item.types.includes('text/plain')) {
-                hasText = true;
-              }
-            }
-
-            if (hasText && !hasImage) {
-              const text = await navigator.clipboard.readText();
-              insertTextAtCursor(text);
-            }
-          } catch (err) {
-            try {
-              const text = await navigator.clipboard.readText();
-              insertTextAtCursor(text);
-            } catch {
-              // best-effort
-            }
-          }
+          await pasteFromNavigatorClipboard();
         }, 0);
         return;
       }
@@ -1161,7 +1267,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       document.removeEventListener('keydown', handleGlobalKeyPress, { capture: true });
       document.removeEventListener('paste', handleGlobalPasteCapture, { capture: true });
     };
-  }, [addImageAttachment, emitSelectionChange, insertTextAtCursor]);
+  }, [pasteFromNavigatorClipboard, emitSelectionChange]);
 
   const loadAvailability = useCallback(async (force?: boolean) => {
     setAiToolsLoading(true);
@@ -1294,6 +1400,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
                   aria-multiline="true"
                   data-testid="input-editor"
                   onKeyDown={handleKeyDown}
+                  onInput={handleEditorInput}
                   onPaste={handleEditorPaste}
                   onCopy={handleEditorCopy}
                   onFocus={() => {
@@ -1301,6 +1408,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
                   }}
                   onBlur={() => {
                     setIsFocused(false);
+                    saveDraftNow(session.id);
                     // Save cursor position on blur
                     const selection = window.getSelection();
                     if (selection && selection.rangeCount > 0) {
