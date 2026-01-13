@@ -1,7 +1,7 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Diff, Hunk, getChangeKey, parseDiff, textLinesToHunk, type ChangeData, type DiffType, type HunkData } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Plus, Minus, RotateCcw } from 'lucide-react';
 import { API } from '../../../utils/api';
 import { MarkdownPreview } from './MarkdownPreview';
 import { isMarkdownFile } from './utils/fileUtils';
@@ -1042,19 +1042,63 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                   backgroundColor: 'var(--st-surface)',
                   borderBottom: '1px solid var(--st-border-variant)',
                 }}
+                onMouseEnter={() => setHoveredHunkKey(null)}
               >
                 <div className="st-diff-file-header-content">
-                  <span className="st-diff-file-path">{file.path}</span>
-                  {isMarkdownFile(file.path) && fileSources?.[file.path] && (
-                    <button
-                      type="button"
-                      className="st-diff-preview-btn"
-                      onClick={() => togglePreview(file.path)}
-                      title={previewFiles.has(file.path) ? 'Show Diff' : 'Preview'}
-                    >
-                      {previewFiles.has(file.path) ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  )}
+                  <span className="st-diff-file-path" data-testid="diff-file-path">{file.path}</span>
+                  <div className="st-diff-file-actions">
+                    {isMarkdownFile(file.path) && fileSources?.[file.path] && (
+                      <button
+                        type="button"
+                        className="st-diff-preview-btn"
+                        onClick={() => togglePreview(file.path)}
+                        title={previewFiles.has(file.path) ? 'Show Diff' : 'Preview'}
+                      >
+                        {previewFiles.has(file.path) ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    )}
+                    {!isCommitView && (() => {
+                      const hasStaged = stagedHunkHeaderBySig.has(file.path);
+                      const hasUnstaged = unstagedHunkHeaderBySig.has(file.path);
+                      const isFullyStaged = hasStaged && !hasUnstaged;
+                      const isFullyUnstaged = !hasStaged && hasUnstaged;
+                      return (
+                        <>
+                          {!isFullyStaged && (
+                            <button
+                              type="button"
+                              className="st-diff-file-action-btn st-diff-file-action-stage"
+                              onClick={() => stageFile(file.path, true, `file:${file.path}`)}
+                              title="Stage file"
+                            >
+                              <Plus size={14} />
+                              <span>Stage</span>
+                            </button>
+                          )}
+                          {!isFullyUnstaged && hasStaged && (
+                            <button
+                              type="button"
+                              className="st-diff-file-action-btn st-diff-file-action-unstage"
+                              onClick={() => stageFile(file.path, false, `file:${file.path}`)}
+                              title="Unstage file"
+                            >
+                              <Minus size={14} />
+                              <span>Unstage</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="st-diff-file-action-btn st-diff-file-action-restore"
+                            onClick={() => restoreFile(file.path, `file:${file.path}`)}
+                            title="Restore file"
+                          >
+                            <RotateCcw size={14} />
+                            <span>Restore</span>
+                          </button>
+                        </>
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
 
@@ -1193,7 +1237,16 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                       .filter((e): e is readonly [string, React.ReactElement | null] => e !== null)
                   ) as Record<string, React.ReactElement | null>}
                 >
-                  {(hunks) => hunks.map((hunk) => <Hunk key={(hunk as any).__st_hunkKey as string} hunk={hunk} />)}
+                  {(hunks) => hunks.map((hunk, index) => (
+                    <React.Fragment key={(hunk as any).__st_hunkKey as string}>
+                      {index > 0 && (
+                        <tbody className="st-hunk-separator">
+                          <tr><td colSpan={3} /></tr>
+                        </tbody>
+                      )}
+                      <Hunk hunk={hunk} />
+                    </React.Fragment>
+                  ))}
                 </Diff>
                 </div>
                 )}
@@ -1439,6 +1492,50 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
             color: var(--st-text);
           }
 
+          /* File action buttons container */
+          .st-diff-file-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+          }
+
+          /* File action buttons */
+          .st-diff-file-action-btn {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 8px;
+            background: transparent;
+            border: 1px solid var(--st-border-variant);
+            border-radius: 4px;
+            color: var(--st-text-muted);
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+          }
+
+          .st-diff-file-action-btn:hover {
+            background: color-mix(in srgb, var(--st-hover) 60%, transparent);
+            color: var(--st-text);
+          }
+
+          .st-diff-file-action-stage:hover {
+            border-color: var(--st-diff-added-marker);
+            color: var(--st-diff-added-marker);
+          }
+
+          .st-diff-file-action-unstage:hover {
+            border-color: var(--st-diff-modified-marker);
+            color: var(--st-diff-modified-marker);
+          }
+
+          .st-diff-file-action-restore:hover {
+            border-color: var(--st-diff-deleted-marker);
+            color: var(--st-diff-deleted-marker);
+          }
+
           /* Ensure headers are sized to the viewport, not to the max-content table width. */
           .st-diff-file { width: 100%; }
           .st-diff-file-body { width: 100%; }
@@ -1540,7 +1637,17 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
           }
 
           /* Zed-like: only "edit hunks" are treated as blocks. */
-          .st-diff-table .diff-hunk { position: relative; }
+          .st-diff-table .diff-hunk {
+            position: relative;
+          }
+          /* Hunk separator row - spacing between hunks */
+          .st-diff-table .st-hunk-separator {
+            height: 30px;
+          }
+          .st-diff-table .st-hunk-separator td {
+            padding: 0;
+            border: 0;
+          }
           .st-diff-table .diff-hunk:has(.diff-code-insert, .diff-code-delete) {
             --st-hunk-color: var(--st-diff-modified-marker);
             --st-hunk-marker-color: var(--st-hunk-color);

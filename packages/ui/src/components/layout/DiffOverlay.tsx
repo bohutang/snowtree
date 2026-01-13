@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { X, ArrowLeft, RefreshCw, Copy, Check, ChevronUp, ChevronDown, Plus, Minus } from 'lucide-react';
+import { X, ArrowLeft, RefreshCw, Copy, Check, ChevronUp, ChevronDown } from 'lucide-react';
 import { ZedDiffViewer, type ZedDiffViewerHandle } from '../panels/diff/ZedDiffViewer';
 import { API } from '../../utils/api';
 import { withTimeout } from '../../utils/withTimeout';
@@ -34,10 +34,6 @@ const ToolbarButton: React.FC<{
     </button>
   );
 };
-
-const ToolbarDivider: React.FC = () => (
-  <div className="h-4 w-px mx-1" style={{ backgroundColor: border }} />
-);
 
 const IconButton: React.FC<{
   onClick: () => void;
@@ -83,8 +79,6 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
   
   const [currentHunkIndex, setCurrentHunkIndex] = useState(0);
   const [totalHunks, setTotalHunks] = useState(0);
-  const [visibleFilePath, setVisibleFilePath] = useState<string | null>(null);
-  const [stagingInProgress, setStagingInProgress] = useState(false);
   const diffViewerRef = useRef<ZedDiffViewerHandle | null>(null);
 
   const derivedFiles = useMemo(() => {
@@ -315,24 +309,9 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
     diffViewerRef.current?.navigateToHunk(direction);
   }, []);
 
-  const handleStageAll = useCallback(async (stage: boolean) => {
-    if (!sessionId || stagingInProgress) return;
-    setStagingInProgress(true);
-    try {
-      await diffViewerRef.current?.stageAll(stage);
-      handleRefresh();
-    } finally {
-      setStagingInProgress(false);
-    }
-  }, [sessionId, stagingInProgress, handleRefresh]);
-
   const handleHunkInfo = useCallback((current: number, total: number) => {
     setCurrentHunkIndex(current);
     setTotalHunks(total);
-  }, []);
-
-  const handleVisibleFileChange = useCallback((path: string | null) => {
-    setVisibleFilePath(path);
   }, []);
 
   if (!isOpen) return null;
@@ -447,72 +426,34 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
         </div>
       </div>
 
-      {isWorkingTree && (
+      {isWorkingTree && hasHunks && (
         <div
-          className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-3 py-1.5"
+          className="flex items-center justify-center gap-1 px-3 py-1.5"
           style={{ backgroundColor: 'var(--st-surface)', borderBottom: `1px solid ${border}` }}
           data-testid="diff-toolbar"
         >
-          <div className="flex items-center gap-1 min-w-0 justify-start">
-            <ToolbarButton
-              onClick={() => handleStageAll(true)}
-              disabled={stagingInProgress || !diff}
-              title="Stage all changes"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Stage All</span>
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => handleStageAll(false)}
-              disabled={stagingInProgress || !diff}
-              title="Unstage all changes"
-            >
-              <Minus className="w-3.5 h-3.5" />
-              <span>Unstage All</span>
-              </ToolbarButton>
-            </div>
-
-          <div className="flex items-center gap-1 justify-center">
-            <ToolbarButton
-              onClick={() => handleHunkNavigation('prev')}
-              disabled={!hasHunks}
-              title="Previous hunk"
-              variant="icon"
-            >
-              <ChevronUp className="w-4 h-4" />
-            </ToolbarButton>
-            {hasHunks && (
-              <span
-                className="text-[11px] font-mono px-1.5 min-w-[40px] text-center"
-                style={{ color: 'var(--st-text-faint)' }}
-              >
-                {currentHunkIndex}/{totalHunks}
-              </span>
-            )}
-            <ToolbarButton
-              onClick={() => handleHunkNavigation('next')}
-              disabled={!hasHunks}
-              title="Next hunk"
-              variant="icon"
-            >
-              <ChevronDown className="w-4 h-4" />
-              </ToolbarButton>
-          </div>
-
-          <div className="flex items-center gap-1 min-w-0 justify-end">
-            {visibleFilePath && (
-              <>
-                <ToolbarDivider />
-                <span
-                  className="text-[10px] font-mono truncate max-w-[200px]"
-                  style={{ color: 'var(--st-text-faint)' }}
-                  title={visibleFilePath}
-                >
-                  {visibleFilePath.split('/').pop()}
-                </span>
-              </>
-            )}
-          </div>
+          <ToolbarButton
+            onClick={() => handleHunkNavigation('prev')}
+            disabled={!hasHunks}
+            title="Previous hunk"
+            variant="icon"
+          >
+            <ChevronUp className="w-4 h-4" />
+          </ToolbarButton>
+          <span
+            className="text-[11px] font-mono px-1.5 min-w-[40px] text-center"
+            style={{ color: 'var(--st-text-faint)' }}
+          >
+            {currentHunkIndex}/{totalHunks}
+          </span>
+          <ToolbarButton
+            onClick={() => handleHunkNavigation('next')}
+            disabled={!hasHunks}
+            title="Next hunk"
+            variant="icon"
+          >
+            <ChevronDown className="w-4 h-4" />
+          </ToolbarButton>
         </div>
       )}
 
@@ -592,12 +533,11 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
             stagedDiff={stagedDiff ?? undefined}
             unstagedDiff={unstagedDiff ?? undefined}
             fileSources={filePath && fileSource != null ? { [filePath]: fileSource } : (fileSources ?? undefined)}
-            expandFileContext={Boolean(filePath && fileSource != null)}
+            expandFileContext={false}
             fileOrder={viewerFiles.length > 0 ? viewerFiles.map((f) => f.path) : undefined}
             isCommitView={target?.kind === 'commit'}
             onChanged={handleRefresh}
             onHunkInfo={handleHunkInfo}
-            onVisibleFileChange={handleVisibleFileChange}
           />
         ) : (
           <div

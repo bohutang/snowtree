@@ -272,9 +272,9 @@ index 1234567..abcdefg 100644
 
   it('orders files based on fileOrder when provided', () => {
     render(<ZedDiffViewer diff={SAMPLE_DIFF_TWO_FILES} fileOrder={['a.txt', 'b.txt']} />);
-    const headers = screen.getAllByTestId('diff-file-header').map((el) => el.textContent);
-    expect(headers[0]).toBe('a.txt');
-    expect(headers[1]).toBe('b.txt');
+    const filePaths = screen.getAllByTestId('diff-file-path').map((el) => el.textContent);
+    expect(filePaths[0]).toBe('a.txt');
+    expect(filePaths[1]).toBe('b.txt');
   });
 
   it('renders a distinct gutter style for staged hunks', () => {
