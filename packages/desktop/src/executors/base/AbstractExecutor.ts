@@ -8,6 +8,7 @@ import { randomUUID } from 'crypto';
 import * as pty from '@homebridge/node-pty-prebuilt-multiarch';
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -283,6 +284,15 @@ export abstract class AbstractExecutor extends EventEmitter {
   ): Promise<pty.IPty> {
     if (!pty) {
       throw new Error('node-pty not available');
+    }
+
+    // Validate working directory exists before spawning
+    if (!fs.existsSync(cwd)) {
+      throw new Error(
+        `Working directory does not exist: ${cwd}\n\n` +
+          `This usually happens when the workspace was renamed or deleted. ` +
+          `Please create a new session or restore the workspace directory.`
+      );
     }
 
     this.logger?.verbose(`Executing: ${command} ${args.join(' ')}`);

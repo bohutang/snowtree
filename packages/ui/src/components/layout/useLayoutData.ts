@@ -199,7 +199,11 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
         return;
       }
 
-      await window.electronAPI?.panels?.continue(panelToUse.id, message, undefined, { planMode }, images);
+      const result = await window.electronAPI?.panels?.continue(panelToUse.id, message, undefined, { planMode }, images);
+      if (result && !result.success) {
+        console.error('Failed to send message:', result.error);
+        setIsProcessing(false);
+      }
     } catch (error) {
       console.error('Failed to send message:', error);
       setIsProcessing(false);
@@ -221,7 +225,11 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
         return;
       }
 
-      await window.electronAPI?.panels?.continue(panelToUse.id, message, undefined, options);
+      const result = await window.electronAPI?.panels?.continue(panelToUse.id, message, undefined, options);
+      if (result && !result.success) {
+        console.error('Failed to send message:', result.error);
+        setIsProcessing(false);
+      }
     } catch (error) {
       console.error('Failed to send message:', error);
       setIsProcessing(false);
