@@ -40,8 +40,10 @@ export class CodexExecutor extends AbstractExecutor {
   private conversationIdByPanel = new Map<string, { conversationId: string; rolloutPath?: string }>();
   private rpcOpById = new Map<string | number, { panelId: string; sessionId: string; startMs: number; kind: 'cli.command' }>();
   private pendingUserTurnRpcIdsByPanel = new Map<string, string[]>();
+  private warnedSilentTurnRpcIds = new Set<string>();
   private turnIdleTimerByPanel = new Map<string, NodeJS.Timeout>();
   private lastTurnActivityMsByPanel = new Map<string, number>();
+  private recentCodexActivityByPanel = new Map<string, string[]>();
   private pendingRequests: Map<string | number, {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
@@ -192,6 +194,8 @@ export class CodexExecutor extends AbstractExecutor {
     const trimmed = data.trim();
     if (!trimmed) return;
 
+    this.trackRecentCodexActivity(panelId, trimmed);
+
     try {
       const message = JSON.parse(trimmed);
 
@@ -235,6 +239,12 @@ export class CodexExecutor extends AbstractExecutor {
         timestamp: new Date(),
       } as ExecutorOutputEvent);
     } catch {
+      // If this looks like JSON-RPC but failed to parse, emit a warning with a short snippet.
+      // This helps diagnose protocol desync or partial-line issues without flooding the logs.
+      if (trimmed.startsWith('{') && trimmed.includes('"method"')) {
+        const snippet = trimmed.length > 220 ? `${trimmed.slice(0, 220)}…` : trimmed;
+        this.logger?.warn(`[Codex] Failed to parse JSON line (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)}): ${snippet}`);
+      }
       // Not JSON, emit as stdout
       this.emit('output', {
         panelId,
@@ -319,6 +329,14 @@ export class CodexExecutor extends AbstractExecutor {
     sessionId: string
   ): void {
     const { method, params } = notification;
+
+    if (method === 'turn/started') {
+      this.logger?.info(`[Codex] turn started (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)})`);
+    } else if (method === 'turn/completed') {
+      this.logger?.info(`[Codex] turn completed (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)})`);
+    } else if (method === 'error') {
+      this.logger?.warn(`[Codex] turn error notification (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)})`);
+    }
 
     // Codex can keep streaming deltas (reasoning/assistant text) after commands finish.
     // Treat non-terminal notifications as activity so the UI stays in "Running".
@@ -567,6 +585,7 @@ export class CodexExecutor extends AbstractExecutor {
   ): Promise<void> {
     const rpcId = this.nextRequestId();
     this.enqueuePendingUserTurn(panelId, rpcId);
+    this.warnedSilentTurnRpcIds.delete(rpcId);
 
     const request: JsonRpcRequest = {
       id: rpcId,
@@ -588,6 +607,10 @@ export class CodexExecutor extends AbstractExecutor {
       // spurious "Request sendUserMessage timed out" errors while the agent may still be running.
       this.pendingRequests.set(rpcId, { resolve: (() => resolve()) as unknown as (value: unknown) => void, reject, label: 'sendUserMessage' });
       this.sendRpcMessage(panelId, request);
+      const proc = this.processes.get(panelId);
+      const sid = proc?.sessionId || '';
+      if (sid) this.noteTurnActivity(panelId, sid);
+      this.scheduleSilentTurnWarning(panelId, sid, rpcId);
       setTimeout(() => {
         if (this.pendingRequests.has(rpcId)) {
           this.pendingRequests.delete(rpcId);
@@ -596,6 +619,57 @@ export class CodexExecutor extends AbstractExecutor {
         }
       }, 30000);
     });
+  }
+
+  private scheduleSilentTurnWarning(panelId: string, sessionId: string, rpcId: string): void {
+    const warnAfterMs = 15_000;
+    setTimeout(() => {
+      if (!sessionId) return;
+      const pending = this.pendingUserTurnRpcIdsByPanel.get(panelId) || [];
+      if (!pending.includes(rpcId)) return;
+      if (this.warnedSilentTurnRpcIds.has(rpcId)) return;
+
+      const last = this.lastTurnActivityMsByPanel.get(panelId) || 0;
+      const now = Date.now();
+      if (last && now - last < warnAfterMs) return;
+
+      this.warnedSilentTurnRpcIds.add(rpcId);
+      const convo = this.conversationIdByPanel.get(panelId)?.conversationId;
+      const recent = (this.recentCodexActivityByPanel.get(panelId) || []).slice(-6).join(' | ');
+      this.logger?.warn(
+        `[Codex] No events received for ${Math.round(warnAfterMs / 1000)}s after sendUserMessage ` +
+        `(panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)} rpcId=${rpcId}` +
+        `${convo ? ` convo=${convo.slice(0, 8)}` : ''}). ` +
+        `Recent: ${recent || '(none)'}`
+      );
+    }, warnAfterMs);
+  }
+
+  private trackRecentCodexActivity(panelId: string, line: string): void {
+    const current = this.recentCodexActivityByPanel.get(panelId) || [];
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    let summary = trimmed;
+    if (trimmed.startsWith('{')) {
+      const methodMatch = trimmed.match(/"method"\s*:\s*"([^"]+)"/);
+      const idMatch = trimmed.match(/"id"\s*:\s*(?:"([^"]+)"|(\d+))/);
+      const method = methodMatch ? methodMatch[1] : '';
+      const id = idMatch ? (idMatch[1] || idMatch[2] || '') : '';
+      if (method) {
+        summary = `rpc:${method}${id ? `#${id}` : ''}`;
+      } else if (id && (trimmed.includes('"result"') || trimmed.includes('"error"'))) {
+        summary = `rpc:response#${id}`;
+      } else {
+        summary = trimmed.length > 120 ? `${trimmed.slice(0, 120)}…` : trimmed;
+      }
+    } else {
+      summary = trimmed.length > 120 ? `${trimmed.slice(0, 120)}…` : trimmed;
+    }
+
+    current.push(summary);
+    if (current.length > 24) current.splice(0, current.length - 24);
+    this.recentCodexActivityByPanel.set(panelId, current);
   }
 
   /**
