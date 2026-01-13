@@ -45,6 +45,7 @@ export class CodexExecutor extends AbstractExecutor {
   private lastTurnActivityMsByPanel = new Map<string, number>();
   private recentCodexActivityByPanel = new Map<string, string[]>();
   private jsonFragmentByPanel = new Map<string, { buf: string; startedAtMs: number }>();
+  private internalWarningLastMsByKey = new Map<string, number>();
   private pendingRequests: Map<string | number, {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
@@ -209,6 +210,13 @@ export class CodexExecutor extends AbstractExecutor {
       // Prevent unbounded growth if output is not actually JSON.
       if (processed.partialJson.length > 256_000) {
         this.logger?.warn(`[Codex] Dropping oversized JSON fragment (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)} len=${processed.partialJson.length})`);
+        this.maybeEmitInternalWarning(
+          panelId,
+          sessionId,
+          'codex-json-fragment',
+          `Dropped an oversized Codex JSON fragment (len=${processed.partialJson.length}). This can cause missing timeline items. Check dev logs for details.`,
+          60_000
+        );
         this.jsonFragmentByPanel.delete(panelId);
       } else {
         // If we keep buffering for a while, surface a single warning.
@@ -216,6 +224,13 @@ export class CodexExecutor extends AbstractExecutor {
         if (ageMs > 2000 && !prior) {
           const snippet = processed.partialJson.length > 220 ? `${processed.partialJson.slice(0, 220)}…` : processed.partialJson;
           this.logger?.warn(`[Codex] Buffering partial JSON (${Math.round(ageMs)}ms) (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)}): ${snippet}`);
+          this.maybeEmitInternalWarning(
+            panelId,
+            sessionId,
+            'codex-json-fragment',
+            `Buffering partial Codex JSON output (>2s). Output may be incomplete until parsing recovers. Check dev logs for details.`,
+            60_000
+          );
         }
         this.jsonFragmentByPanel.set(panelId, { buf: processed.partialJson, startedAtMs });
       }
@@ -234,6 +249,30 @@ export class CodexExecutor extends AbstractExecutor {
     return text
       .replace(/\u0000/g, '')
       .replace(/\x1B\[[0-9;?]*[ -/]*[@-~]/g, '');
+  }
+
+  private maybeEmitInternalWarning(
+    panelId: string,
+    sessionId: string,
+    code: string,
+    message: string,
+    minIntervalMs = 30_000
+  ): void {
+    const key = `${panelId}:${code}`;
+    const now = Date.now();
+    const last = this.internalWarningLastMsByKey.get(key) || 0;
+    if (now - last < minIntervalMs) return;
+    this.internalWarningLastMsByKey.set(key, now);
+
+    // Route to timeline via a thinking entry (multi-line so it isn't filtered as a short Codex phase marker).
+    const content = `Snowtree warning (${code}):\n${message}`;
+    void this.handleNormalizedEntry(panelId, sessionId, {
+      id: `snowtree:warn:${code}:${now}`,
+      timestamp: new Date().toISOString(),
+      entryType: 'thinking',
+      content,
+      metadata: { streaming: false, internal: true, code },
+    });
   }
 
   private processCodexMixedOutput(
@@ -345,8 +384,20 @@ export class CodexExecutor extends AbstractExecutor {
       // This helps diagnose protocol desync or partial-line issues without flooding the logs.
       const t = payload.trim();
       if (t.startsWith('{') && t.includes('"method"')) {
+        const methodMatch = t.match(/"method"\s*:\s*"([^"]+)"/);
+        const idMatch = t.match(/"id"\s*:\s*(?:"([^"]+)"|(\d+))/);
+        const method = methodMatch ? methodMatch[1] : '';
+        const id = idMatch ? (idMatch[1] || idMatch[2] || '') : '';
+        const summary = method ? `rpc:${method}${id ? `#${id}` : ''}` : 'rpc:unknown';
         const snippet = t.length > 220 ? `${t.slice(0, 220)}…` : t;
         this.logger?.warn(`[Codex] Failed to parse JSON line (panel=${panelId.slice(0, 8)} session=${sessionId.slice(0, 8)}): ${snippet}`);
+        this.maybeEmitInternalWarning(
+          panelId,
+          sessionId,
+          'codex-json-parse',
+          `Failed to parse Codex JSON-RPC output (${summary}). This can cause missing assistant messages/commands. Check dev logs for details.`,
+          60_000
+        );
       }
       return false;
     }
