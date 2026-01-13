@@ -1,4 +1,5 @@
 import type { IpcMain } from 'electron';
+import * as fs from 'fs';
 import type { AppServices } from './types';
 import { panelManager } from '../../features/panels/PanelManager';
 import { ClaudePanelManager } from '../../features/panels/ai/ClaudePanelManager';
@@ -162,6 +163,40 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
       if (!session?.worktreePath) return { success: false, error: 'Session worktree not available' };
       sessionIdForError = session.id;
 
+      // Check if worktree path still exists; if not, try to recover it
+      let worktreePath = session.worktreePath;
+      if (!fs.existsSync(worktreePath)) {
+        // Get the database session to access worktree_name
+        const dbSession = sessionManager.getDbSession(session.id);
+        const worktreeName = dbSession?.worktree_name;
+
+        // Try to find the worktree by branch name
+        const project = session.projectId ? databaseService.getProject(session.projectId) : null;
+        if (project && worktreeName) {
+          try {
+            const worktrees = await worktreeManager.listWorktreesDetailed(project.path, session.id);
+            // Find worktree by branch name (worktreeName is usually the branch name)
+            const matchingWorktree = worktrees.find(w => w.branch === worktreeName);
+            if (matchingWorktree) {
+              // Found the worktree at a new path - update session
+              worktreePath = matchingWorktree.path;
+              sessionManager.updateSession(session.id, { worktreePath, worktreeName });
+              logger?.info(`[IPC] Recovered worktree path: ${session.worktreePath} -> ${worktreePath}`);
+            }
+          } catch (e) {
+            logger?.warn(`[IPC] Failed to recover worktree path: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+
+        // If still not found, return an error
+        if (!fs.existsSync(worktreePath)) {
+          return {
+            success: false,
+            error: `Workspace directory not found: ${session.worktreePath}\n\nThe workspace may have been renamed or deleted. Please create a new session.`
+          };
+        }
+      }
+
       sessionManager.updateSessionStatus(session.id, 'running');
 
       const messageContent = images && images.length > 0
@@ -186,7 +221,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
           const history = sessionManager.getPanelConversationMessages(panelId);
           await manager.continuePanel({
             panelId,
-            worktreePath: session.worktreePath,
+            worktreePath,
             prompt: input,
             conversationHistory: history,
             planMode,
@@ -208,7 +243,7 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
           const history = sessionManager.getPanelConversationMessages(panelId);
           await manager.continuePanel({
             panelId,
-            worktreePath: session.worktreePath,
+            worktreePath,
             prompt: input,
             conversationHistory: history,
             planMode,

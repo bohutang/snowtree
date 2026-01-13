@@ -2,6 +2,7 @@ import type { IpcMain } from 'electron';
 import type { AppServices } from './types';
 import { randomUUID } from 'crypto';
 import { dirname, join } from 'path';
+import { symlink } from 'fs/promises';
 
 type CreateProjectRequest = {
   name: string;
@@ -167,6 +168,16 @@ export function registerProjectHandlers(ipcMain: IpcMain, services: AppServices)
         op: 'write',
         meta: { source: 'workspace', operation: 'worktree-move', worktreePath: normalizedWorktreePath, nextPath },
       });
+
+      // Create a symlink from old path to new path so running agents can continue working.
+      // This allows agents that are already running with cwd=oldPath to still access files.
+      try {
+        await symlink(nextPath, normalizedWorktreePath);
+        console.log(`[IPC] Created symlink for worktree rename: ${normalizedWorktreePath} -> ${nextPath}`);
+      } catch (symlinkError) {
+        // Symlink creation is best-effort; log but don't fail the rename
+        console.warn(`[IPC] Failed to create symlink for worktree rename: ${symlinkError instanceof Error ? symlinkError.message : String(symlinkError)}`);
+      }
 
       // Update any sessions attached to this worktree path so open-worktree continues to resolve.
       const sessions = databaseService.getAllSessionsIncludingArchived().filter(
