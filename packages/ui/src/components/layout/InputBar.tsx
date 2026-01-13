@@ -6,6 +6,10 @@ import { withTimeout } from '../../utils/withTimeout';
 import type { TimelineEvent } from '../../types/timeline';
 
 const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/tiff'];
+const IS_MAC =
+  typeof navigator !== 'undefined' &&
+  // `navigator.platform` is deprecated but still present in Electron/Chromium; keep a UA fallback.
+  (/Mac/i.test(navigator.platform || '') || /Mac OS X/i.test(navigator.userAgent || ''));
 
 const BlockCursor: React.FC<{
   editorRef: React.RefObject<HTMLDivElement | null>;
@@ -601,6 +605,51 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     });
   }, [imageAttachments.length, insertImageTag]);
 
+  const pasteFromNavigatorClipboard = useCallback(async () => {
+    try {
+      if (navigator.clipboard?.read) {
+        const clipboardItems = await navigator.clipboard.read();
+        let hasImage = false;
+        let hasText = false;
+
+        for (const item of clipboardItems) {
+          if (item.types.some((type) => ACCEPTED_IMAGE_TYPES.includes(type))) {
+            hasImage = true;
+            for (const type of item.types) {
+              if (ACCEPTED_IMAGE_TYPES.includes(type)) {
+                const blob = await item.getType(type);
+                const file = new File([blob], 'clipboard.png', { type });
+                await addImageAttachment(file);
+                break;
+              }
+            }
+          }
+          if (item.types.includes('text/plain')) {
+            hasText = true;
+          }
+        }
+
+        if (hasText && !hasImage) {
+          const text = await navigator.clipboard.readText();
+          insertTextAtCursor(text);
+        }
+        return;
+      }
+
+      // Fallback: text-only.
+      const text = await navigator.clipboard.readText();
+      insertTextAtCursor(text);
+    } catch {
+      // If async clipboard read isn't available/allowed (common in tests), fall back to readText.
+      try {
+        const text = await navigator.clipboard?.readText?.();
+        if (typeof text === 'string' && text.length > 0) insertTextAtCursor(text);
+      } catch {
+        // best-effort
+      }
+    }
+  }, [addImageAttachment, insertTextAtCursor]);
+
   const handleEditorPaste = useCallback(async (e: React.ClipboardEvent<HTMLDivElement>) => {
     // Always prevent default and handle manually
     e.preventDefault();
@@ -831,6 +880,13 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       return;
     }
 
+    // macOS convenience: allow Ctrl+V to paste images/text (Cmd+V is handled by the paste event).
+    if (IS_MAC && e.ctrlKey && !e.metaKey && (e.key === 'v' || e.key === 'V')) {
+      e.preventDefault();
+      void pasteFromNavigatorClipboard();
+      return;
+    }
+
     // Input history navigation (shell-like).
     // - First ArrowUp/Down jumps caret to start/end.
     // - Second ArrowUp/Down (when already at boundary) cycles through sent prompts.
@@ -913,7 +969,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       e.preventDefault();
       handleSubmit();
     }
-  }, [getEditorText, handleSubmit, isCaretAtBoundary, isRunning, moveCaretToBoundary, setEditorTextAndMoveCaretToEnd]);
+  }, [getEditorText, handleSubmit, isCaretAtBoundary, isRunning, moveCaretToBoundary, pasteFromNavigatorClipboard, setEditorTextAndMoveCaretToEnd]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -1010,40 +1066,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
 
         editor.focus();
         setTimeout(async () => {
-          try {
-            const clipboardItems = await navigator.clipboard.read();
-            let hasImage = false;
-            let hasText = false;
-
-            for (const item of clipboardItems) {
-              if (item.types.some(type => ACCEPTED_IMAGE_TYPES.includes(type))) {
-                hasImage = true;
-                for (const type of item.types) {
-                  if (ACCEPTED_IMAGE_TYPES.includes(type)) {
-                    const blob = await item.getType(type);
-                    const file = new File([blob], 'clipboard.png', { type });
-                    await addImageAttachment(file);
-                    break;
-                  }
-                }
-              }
-              if (item.types.includes('text/plain')) {
-                hasText = true;
-              }
-            }
-
-            if (hasText && !hasImage) {
-              const text = await navigator.clipboard.readText();
-              insertTextAtCursor(text);
-            }
-          } catch (err) {
-            try {
-              const text = await navigator.clipboard.readText();
-              insertTextAtCursor(text);
-            } catch {
-              // best-effort
-            }
-          }
+          await pasteFromNavigatorClipboard();
         }, 0);
         return;
       }
@@ -1161,7 +1184,7 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       document.removeEventListener('keydown', handleGlobalKeyPress, { capture: true });
       document.removeEventListener('paste', handleGlobalPasteCapture, { capture: true });
     };
-  }, [addImageAttachment, emitSelectionChange, insertTextAtCursor]);
+  }, [pasteFromNavigatorClipboard, emitSelectionChange]);
 
   const loadAvailability = useCallback(async (force?: boolean) => {
     setAiToolsLoading(true);
