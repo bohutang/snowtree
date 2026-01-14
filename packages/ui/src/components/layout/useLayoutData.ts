@@ -38,25 +38,44 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
   const branchPollTimerRef = useRef<number | null>(null);
   const branchPollInFlightRef = useRef(false);
 
+  // Local execution mode state - used when no panel exists yet
+  const [localExecutionMode, setLocalExecutionMode] = useState<ExecutionMode>('execute');
+
   useEffect(() => {
     aiPanelRef.current = aiPanel;
   }, [aiPanel]);
 
-  // Derive executionMode from aiPanel state
+  // Derive executionMode from aiPanel state, fallback to local state
   const executionMode = useMemo<ExecutionMode>(() => {
     const customState = aiPanel?.state?.customState as BaseAIPanelState | undefined;
-    return customState?.executionMode || 'execute';
-  }, [aiPanel]);
+    const panelMode = customState?.executionMode;
+    // Use panel mode if available, otherwise use local state
+    return panelMode || localExecutionMode;
+  }, [aiPanel, localExecutionMode]);
   const executionModeRef = useRef<ExecutionMode>(executionMode);
 
   useEffect(() => {
     executionModeRef.current = executionMode;
   }, [executionMode]);
 
+  // Sync local mode when panel mode changes
+  useEffect(() => {
+    const customState = aiPanel?.state?.customState as BaseAIPanelState | undefined;
+    if (customState?.executionMode) {
+      setLocalExecutionMode(customState.executionMode);
+    }
+  }, [aiPanel]);
+
   // Update execution mode and persist to panel state
   const setExecutionMode = useCallback(async (mode: ExecutionMode) => {
+    // Always update local state for immediate UI feedback
+    setLocalExecutionMode(mode);
+
     const panel = aiPanelRef.current;
-    if (!panel) return;
+    if (!panel) {
+      // No panel yet - local state will be used until panel is created
+      return;
+    }
 
     try {
       const currentState = panel.state || { isActive: true };
@@ -281,7 +300,29 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
 
       if (createResponse?.success && createResponse.data) {
         panelToUse = createResponse.data;
-        setAiPanel(panelToUse);
+
+        // Apply local execution mode to newly created panel
+        const currentLocalMode = localExecutionMode;
+        if (currentLocalMode !== 'execute') {
+          const panelWithMode = {
+            ...panelToUse,
+            state: {
+              ...(panelToUse.state || { isActive: true }),
+              customState: {
+                ...((panelToUse.state?.customState as BaseAIPanelState) || {}),
+                executionMode: currentLocalMode
+              }
+            }
+          };
+          setAiPanel(panelWithMode);
+          // Persist the mode to backend
+          await window.electronAPI?.panels?.update(panelToUse.id, {
+            state: panelWithMode.state
+          });
+          panelToUse = panelWithMode;
+        } else {
+          setAiPanel(panelToUse);
+        }
       } else {
         console.error('Failed to create AI panel:', createResponse?.error);
         return null;
@@ -289,7 +330,7 @@ export function useLayoutData(sessionId: string | null): UseLayoutDataResult {
     }
 
     return panelToUse;
-  }, [session, aiPanel]);
+  }, [session, aiPanel, localExecutionMode]);
 
   const sendMessage = useCallback(async (message: string, images?: ImageAttachment[], planMode?: boolean) => {
     if (!session) return;
