@@ -23,6 +23,7 @@ export interface Session {
   archived?: boolean;
   displayOrder?: number;
   toolType?: 'claude' | 'codex' | 'none';
+  executionMode?: 'plan' | 'execute';
   gitStatus?: GitStatus;
   workspaceStage?: import('./workspace').WorkspaceStage;
 }

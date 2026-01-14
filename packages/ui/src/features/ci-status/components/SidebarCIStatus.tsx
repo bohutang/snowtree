@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { Check, X, Loader2, Circle, ChevronDown, ExternalLink } from 'lucide-react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { Check, X, Loader2, Circle, ChevronDown } from 'lucide-react';
 import type { CIStatus, CIRollupState, CICheck } from '../types';
 
 interface SidebarCIStatusProps {
@@ -46,21 +46,43 @@ export const SidebarCIStatus: React.FC<SidebarCIStatusProps> = React.memo(({
   ciStatus
 }) => {
   const [expanded, setExpanded] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const handleToggle = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     setExpanded(prev => !prev);
   }, []);
 
-  const handleOpenLink = useCallback((e: React.MouseEvent, url: string) => {
+  const handleCheckClick = useCallback((e: React.MouseEvent, check: CICheck) => {
     e.stopPropagation();
-    window.electronAPI?.invoke?.('shell:openExternal', url);
+    if (check.detailsUrl) {
+      window.electronAPI?.invoke?.('shell:openExternal', check.detailsUrl);
+      setExpanded(false);
+    }
   }, []);
+
+  // Close dropdown when clicking outside - use mousedown for immediate response
+  useEffect(() => {
+    if (!expanded) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setExpanded(false);
+      }
+    };
+
+    // Use mousedown instead of click for immediate response before other handlers
+    document.addEventListener('mousedown', handleClickOutside, true);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+    };
+  }, [expanded]);
 
   const { successCount, totalCount, rollupState } = ciStatus;
 
   return (
-    <div className="flex flex-col">
+    <div className="relative" ref={containerRef}>
       {/* Compact badge - clickable */}
       <button
         type="button"
@@ -79,43 +101,42 @@ export const SidebarCIStatus: React.FC<SidebarCIStatusProps> = React.memo(({
         />
       </button>
 
-      {/* Expanded details */}
+      {/* Expanded details - positioned absolutely to avoid layout disruption */}
       {expanded && (
         <div
-          className="mt-1 ml-1 pl-2 border-l"
-          style={{ borderColor: 'var(--st-border)' }}
+          className="absolute top-full right-0 mt-1 pl-2 pr-2 py-1 border rounded-md shadow-lg z-10"
+          style={{
+            borderColor: 'var(--st-border)',
+            backgroundColor: 'var(--st-surface)',
+            minWidth: '160px'
+          }}
           onClick={(e) => e.stopPropagation()}
         >
           {ciStatus.checks.map((check, idx) => (
-            <div
+            <button
+              type="button"
               key={check.id || idx}
-              className="flex items-center gap-1.5 py-0.5 text-[10px] group"
+              onClick={(e) => handleCheckClick(e, check)}
+              className="flex items-center gap-1.5 py-1 px-1 text-[10px] w-full rounded st-hoverable"
+              style={{
+                cursor: check.detailsUrl ? 'pointer' : 'default',
+                backgroundColor: 'transparent'
+              }}
+              title={check.detailsUrl ? `Open ${check.name} in browser` : check.name}
             >
               {getCheckIcon(check, 'w-2.5 h-2.5')}
               <span
-                className="truncate flex-1"
+                className="truncate flex-1 text-left"
                 style={{
                   color: check.conclusion === 'failure' || check.conclusion === 'timed_out'
                     ? 'var(--st-danger)'
                     : 'var(--st-text-muted)',
                   maxWidth: '140px'
                 }}
-                title={check.name}
               >
                 {check.name}
               </span>
-              {check.detailsUrl && (
-                <button
-                  type="button"
-                  onClick={(e) => handleOpenLink(e, check.detailsUrl!)}
-                  className="opacity-0 group-hover:opacity-100 st-icon-button"
-                  style={{ padding: 2 }}
-                  title="Open in browser"
-                >
-                  <ExternalLink className="w-2.5 h-2.5" style={{ color: 'var(--st-text-faint)' }} />
-                </button>
-              )}
-            </div>
+            </button>
           ))}
         </div>
       )}
