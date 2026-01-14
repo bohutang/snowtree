@@ -547,50 +547,17 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
               </button>
               <div className="flex items-center gap-2">
                 {isWorkingTreeSelected && totalChanges > 0 && (
-                  <div className="flex items-center gap-2">
-                    {canStageAll ? (
-                      <button
-                        type="button"
-                        data-testid="right-panel-stage-all"
-                        disabled={isDisabled}
-                        onClick={() => handleStageAll(true)}
-                        className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                        style={{
-                          color: colors.text.primary,
-                          backgroundColor: colors.bg.hover,
-                          border: `1px solid ${colors.border}`,
-                        }}
-                      >
-                        Stage All
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        data-testid="right-panel-unstage-all"
-                        disabled={isDisabled || !canUnstageAll}
-                        onClick={() => handleStageAll(false)}
-                        className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                        style={{
-                          color: colors.text.primary,
-                          backgroundColor: colors.bg.hover,
-                          border: `1px solid ${colors.border}`,
-                        }}
-                      >
-                        Unstage All
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => onCommitUncommittedChanges?.()}
-                      disabled={Boolean(isCommitDisabled) || stagedFileCount === 0}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                      style={{ color: colors.accent }}
-                      data-testid="right-panel-commit"
-                    >
-                      <GitCommit className="w-3 h-3" />
-                      Commit
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onCommitUncommittedChanges?.()}
+                    disabled={Boolean(isCommitDisabled) || stagedFileCount === 0}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                    style={{ color: colors.accent }}
+                    data-testid="right-panel-commit"
+                  >
+                    <GitCommit className="w-3 h-3" />
+                    Commit
+                  </button>
                 )}
                 {selectedCommit && (
                   <span
@@ -617,6 +584,41 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                 data-testid="right-panel-review-summary"
               >
                 <div className="flex items-center gap-2 min-w-0">
+                  {isWorkingTreeSelected && totalChanges > 0 && (
+                    <div className="flex items-center gap-2">
+                      {canStageAll ? (
+                        <button
+                          type="button"
+                          data-testid="right-panel-stage-all"
+                          disabled={isDisabled}
+                          onClick={() => handleStageAll(true)}
+                          className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                          style={{
+                            color: colors.text.primary,
+                            backgroundColor: colors.bg.hover,
+                            border: `1px solid ${colors.border}`,
+                          }}
+                        >
+                          Stage All
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          data-testid="right-panel-unstage-all"
+                          disabled={isDisabled || !canUnstageAll}
+                          onClick={() => handleStageAll(false)}
+                          className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                          style={{
+                            color: colors.text.primary,
+                            backgroundColor: colors.bg.hover,
+                            border: `1px solid ${colors.border}`,
+                          }}
+                        >
+                          Unstage All
+                        </button>
+                      )}
+                    </div>
+                  )}
                   <span className="text-[10px]" style={{ color: colors.text.muted }}>
                     Review:
                   </span>
