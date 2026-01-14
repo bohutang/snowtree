@@ -102,7 +102,7 @@ export interface ElectronAPI {
     getDiff: (sessionId: string, target: DiffTarget) => Promise<IPCResponse<GitDiffResultDTO>>;
     getGitCommands: (sessionId: string) => Promise<IPCResponse<{ currentBranch: string }>>;
     getRemotePullRequest: (sessionId: string) => Promise<IPCResponse<RemotePullRequestDTO | null>>;
-    getFileContent: (sessionId: string, options: { filePath: string; ref: 'HEAD' | 'INDEX' | 'WORKTREE'; maxBytes?: number }) => Promise<IPCResponse<{ content: string }>>;
+    getFileContent: (sessionId: string, options: { filePath: string; ref: 'HEAD' | 'INDEX' | 'WORKTREE' | string; maxBytes?: number }) => Promise<IPCResponse<{ content: string }>>;
     stageHunk: (sessionId: string, options: {
       filePath: string;
       isStaging: boolean;

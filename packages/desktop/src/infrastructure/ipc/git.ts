@@ -484,7 +484,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
 
   ipcMain.handle('sessions:get-file-content', async (_event, sessionId: string, options: {
     filePath: string;
-    ref: 'HEAD' | 'INDEX' | 'WORKTREE';
+    ref: 'HEAD' | 'INDEX' | 'WORKTREE' | string;
     maxBytes?: number;
   }) => {
     try {
@@ -495,7 +495,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
 
       const filePath = typeof options?.filePath === 'string' ? options.filePath.trim() : '';
       if (!filePath) return { success: false, error: 'File path is required' };
-      const ref = options?.ref === 'INDEX' || options?.ref === 'WORKTREE' ? options.ref : 'HEAD';
+      const ref = typeof options?.ref === 'string' ? options.ref : 'HEAD';
       const maxBytes = typeof options?.maxBytes === 'number' && options.maxBytes > 0 ? options.maxBytes : 1024 * 1024;
 
       if (ref === 'WORKTREE') {
@@ -507,7 +507,8 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         return { success: true, data: { content: buf.toString('utf8') } };
       }
 
-      const object = ref === 'INDEX' ? `:${filePath}` : `HEAD:${filePath}`;
+      // Support INDEX, HEAD, and commit refs (e.g., commit hash)
+      const object = ref === 'INDEX' ? `:${filePath}` : `${ref}:${filePath}`;
       const result = await gitExecutor.run({
         sessionId,
         cwd: session.worktreePath,

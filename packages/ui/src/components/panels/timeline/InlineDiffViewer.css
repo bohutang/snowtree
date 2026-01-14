@@ -59,6 +59,7 @@
 /* Markdown preview area */
 .inline-diff-viewer .inline-diff-preview {
   max-height: 400px;
+  overflow-y: auto;
   font-family: var(--st-font-sans, system-ui, sans-serif);
 }
 

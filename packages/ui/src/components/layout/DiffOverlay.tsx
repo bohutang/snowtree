@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { X, ArrowLeft, RefreshCw, Copy, Check, ChevronUp, ChevronDown } from 'lucide-react';
 import { ZedDiffViewer, type ZedDiffViewerHandle } from '../panels/diff/ZedDiffViewer';
+import { isMarkdownFile } from '../panels/diff/utils/fileUtils';
 import { API } from '../../utils/api';
 import { withTimeout } from '../../utils/withTimeout';
 import type { DiffOverlayProps } from './types';
@@ -202,11 +203,61 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = React.memo(({
 
       const response = await withTimeout(API.sessions.getDiff(sessionId, target), 15_000, 'Load diff');
       if (response.success && response.data) {
-        setDiff(response.data.diff ?? '');
+        const diffText = response.data.diff ?? '';
+        setDiff(diffText);
         setStagedDiff(null);
         setUnstagedDiff(null);
         setFileSource(null);
-        setFileSources(null);
+
+        // For commit views, load file content for markdown files to enable preview
+        if (target.kind === 'commit' && diffText) {
+          const commitHash = target.hash;
+          // Parse diff to find changed files
+          const fileMatches = diffText.match(/diff --git a\/(.*?) b\/(.*?)(?:\n|$)/g);
+          const changedFiles: string[] = [];
+          if (fileMatches) {
+            for (const match of fileMatches) {
+              const fileNameMatch = match.match(/diff --git a\/(.*?) b\/(.*?)(?:\n|$)/);
+              if (fileNameMatch) {
+                const newFileName = fileNameMatch[2] || fileNameMatch[1] || '';
+                if (newFileName && isMarkdownFile(newFileName)) {
+                  changedFiles.push(newFileName);
+                }
+              }
+            }
+          }
+
+          // Load markdown file content from the commit
+          if (changedFiles.length > 0) {
+            const results: Record<string, string> = {};
+            const concurrency = 6;
+            let cursor = 0;
+            const workers = Array.from({ length: concurrency }).map(async () => {
+              while (cursor < changedFiles.length) {
+                const idx = cursor++;
+                const p = changedFiles[idx];
+                try {
+                  const r = await withTimeout(
+                    API.sessions.getFileContent(sessionId, { filePath: p, ref: commitHash, maxBytes: 1024 * 1024 }),
+                    15_000,
+                    'Load file content'
+                  );
+                  if (r.success) {
+                    results[p] = r.data?.content ?? '';
+                  }
+                } catch {
+                  // best-effort
+                }
+              }
+            });
+            await Promise.all(workers);
+            setFileSources(Object.keys(results).length > 0 ? results : null);
+          } else {
+            setFileSources(null);
+          }
+        } else {
+          setFileSources(null);
+        }
       } else {
         const message = response.error || 'Failed to load diff';
         const isStaleCommit =
