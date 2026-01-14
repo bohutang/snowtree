@@ -54,20 +54,6 @@ curl -fsSL https://raw.githubusercontent.com/databendlabs/snowtree/main/install.
 | macOS | `.dmg` (arm64, x64) |
 | Linux | `.deb`, `.AppImage` (x86_64) |
 
-## Quick Start
-
-```bash
-snowtree create https://github.com/your-org/your-repo.git
-cd your-repo-snowtree
-snowtree run --agent claude
-```
-
-1. Run `snowtree create` to prepare an isolated worktree copy.  
-2. Use `snowtree run` with your preferred AI agent.  
-3. Stage trusted files after every AI round, then `git commit` when satisfied.
-
-Need more control? Check `snowtree run --help` for agent flags, context directory overrides, and session templates.
-
 ## Development
 
 ```bash
