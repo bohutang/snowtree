@@ -547,6 +547,43 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
               </button>
               <div className="flex items-center gap-2">
                 {isWorkingTreeSelected && totalChanges > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onCommitUncommittedChanges?.()}
+                    disabled={Boolean(isCommitDisabled) || stagedFileCount === 0}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                    style={{ color: colors.accent }}
+                    data-testid="right-panel-commit"
+                  >
+                    <GitCommit className="w-3 h-3" />
+                    Commit
+                  </button>
+                )}
+                {selectedCommit && (
+                  <span
+                    className="text-[10px] font-mono truncate max-w-[100px]"
+                    style={{
+                      color:
+                        selectedCommit.id === 0
+                          ? colors.text.modified
+                          : colors.accent,
+                    }}
+                    title={selectedCommit.commit_message}
+                  >
+                    {selectedCommit.id === 0
+                      ? ''
+                      : selectedCommit.after_commit_hash.substring(0, 7)}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {isWorkingTreeSelected && totalChanges > 0 && (
+              <div
+                className="flex items-center justify-between px-3 pb-2 -mt-1 gap-2"
+                {...(showHunkProgress && { 'data-testid': 'right-panel-review-summary' })}
+              >
+                <div className="flex items-center gap-2 min-w-0">
                   <div className="flex items-center gap-2">
                     {canStageAll ? (
                       <button
@@ -579,63 +616,30 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                         Unstage All
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => onCommitUncommittedChanges?.()}
-                      disabled={Boolean(isCommitDisabled) || stagedFileCount === 0}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                      style={{ color: colors.accent }}
-                      data-testid="right-panel-commit"
-                    >
-                      <GitCommit className="w-3 h-3" />
-                      Commit
-                    </button>
                   </div>
-                )}
-                {selectedCommit && (
-                  <span
-                    className="text-[10px] font-mono truncate max-w-[100px]"
-                    style={{
-                      color:
-                        selectedCommit.id === 0
-                          ? colors.text.modified
-                          : colors.accent,
-                    }}
-                    title={selectedCommit.commit_message}
-                  >
-                    {selectedCommit.id === 0
-                      ? ''
-                      : selectedCommit.after_commit_hash.substring(0, 7)}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {showHunkProgress && (
-              <div
-                className="flex items-center justify-between px-3 pb-2 -mt-1 gap-2"
-                data-testid="right-panel-review-summary"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-[10px]" style={{ color: colors.text.muted }}>
-                    Review:
-                  </span>
-                  <span className="text-[10px] font-mono" style={{ color: colors.text.secondary }}>
-                    {stagedHunks}/{totalHunks} hunks
-                  </span>
-                  <div
-                    className="h-1.5 w-24 rounded overflow-hidden flex-shrink-0"
-                    style={{ backgroundColor: colors.bg.hover }}
-                    aria-hidden="true"
-                  >
-                    <div
-                      className="h-full"
-                      style={{
-                        width: `${Math.round(progressRatio * 100)}%`,
-                        backgroundColor: colors.accent,
-                      }}
-                    />
-                  </div>
+                  {showHunkProgress && (
+                    <>
+                      <span className="text-[10px]" style={{ color: colors.text.muted }}>
+                        Review:
+                      </span>
+                      <span className="text-[10px] font-mono" style={{ color: colors.text.secondary }}>
+                        {stagedHunks}/{totalHunks} hunks
+                      </span>
+                      <div
+                        className="h-1.5 w-24 rounded overflow-hidden flex-shrink-0"
+                        style={{ backgroundColor: colors.bg.hover }}
+                        aria-hidden="true"
+                      >
+                        <div
+                          className="h-full"
+                          style={{
+                            width: `${Math.round(progressRatio * 100)}%`,
+                            backgroundColor: colors.accent,
+                          }}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
