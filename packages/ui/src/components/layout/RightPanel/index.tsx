@@ -578,66 +578,68 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
               </div>
             </div>
 
-            {showHunkProgress && (
+            {isWorkingTreeSelected && totalChanges > 0 && (
               <div
                 className="flex items-center justify-between px-3 pb-2 -mt-1 gap-2"
-                data-testid="right-panel-review-summary"
+                {...(showHunkProgress && { 'data-testid': 'right-panel-review-summary' })}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  {isWorkingTreeSelected && totalChanges > 0 && (
-                    <div className="flex items-center gap-2">
-                      {canStageAll ? (
-                        <button
-                          type="button"
-                          data-testid="right-panel-stage-all"
-                          disabled={isDisabled}
-                          onClick={() => handleStageAll(true)}
-                          className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                          style={{
-                            color: colors.text.primary,
-                            backgroundColor: colors.bg.hover,
-                            border: `1px solid ${colors.border}`,
-                          }}
-                        >
-                          Stage All
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          data-testid="right-panel-unstage-all"
-                          disabled={isDisabled || !canUnstageAll}
-                          onClick={() => handleStageAll(false)}
-                          className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
-                          style={{
-                            color: colors.text.primary,
-                            backgroundColor: colors.bg.hover,
-                            border: `1px solid ${colors.border}`,
-                          }}
-                        >
-                          Unstage All
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  <span className="text-[10px]" style={{ color: colors.text.muted }}>
-                    Review:
-                  </span>
-                  <span className="text-[10px] font-mono" style={{ color: colors.text.secondary }}>
-                    {stagedHunks}/{totalHunks} hunks
-                  </span>
-                  <div
-                    className="h-1.5 w-24 rounded overflow-hidden flex-shrink-0"
-                    style={{ backgroundColor: colors.bg.hover }}
-                    aria-hidden="true"
-                  >
-                    <div
-                      className="h-full"
-                      style={{
-                        width: `${Math.round(progressRatio * 100)}%`,
-                        backgroundColor: colors.accent,
-                      }}
-                    />
+                  <div className="flex items-center gap-2">
+                    {canStageAll ? (
+                      <button
+                        type="button"
+                        data-testid="right-panel-stage-all"
+                        disabled={isDisabled}
+                        onClick={() => handleStageAll(true)}
+                        className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                        style={{
+                          color: colors.text.primary,
+                          backgroundColor: colors.bg.hover,
+                          border: `1px solid ${colors.border}`,
+                        }}
+                      >
+                        Stage All
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        data-testid="right-panel-unstage-all"
+                        disabled={isDisabled || !canUnstageAll}
+                        onClick={() => handleStageAll(false)}
+                        className="px-2.5 py-1 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                        style={{
+                          color: colors.text.primary,
+                          backgroundColor: colors.bg.hover,
+                          border: `1px solid ${colors.border}`,
+                        }}
+                      >
+                        Unstage All
+                      </button>
+                    )}
                   </div>
+                  {showHunkProgress && (
+                    <>
+                      <span className="text-[10px]" style={{ color: colors.text.muted }}>
+                        Review:
+                      </span>
+                      <span className="text-[10px] font-mono" style={{ color: colors.text.secondary }}>
+                        {stagedHunks}/{totalHunks} hunks
+                      </span>
+                      <div
+                        className="h-1.5 w-24 rounded overflow-hidden flex-shrink-0"
+                        style={{ backgroundColor: colors.bg.hover }}
+                        aria-hidden="true"
+                      >
+                        <div
+                          className="h-full"
+                          style={{
+                            width: `${Math.round(progressRatio * 100)}%`,
+                            backgroundColor: colors.accent,
+                          }}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
