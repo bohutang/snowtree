@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Check, X, Loader2, Circle, ChevronDown, ExternalLink } from 'lucide-react';
-import type { CIStatus, CICheck, CIRollupState } from '../types';
+import type { CIStatus, CIRollupState, CICheck } from '../types';
 
 interface SidebarCIStatusProps {
   ciStatus: CIStatus;
@@ -43,8 +43,7 @@ const getCheckIcon = (check: CICheck, size: string = 'w-3 h-3') => {
 };
 
 export const SidebarCIStatus: React.FC<SidebarCIStatusProps> = React.memo(({
-  ciStatus,
-  onOpenDetails
+  ciStatus
 }) => {
   const [expanded, setExpanded] = useState(false);
 
