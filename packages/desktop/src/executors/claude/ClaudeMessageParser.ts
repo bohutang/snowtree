@@ -328,12 +328,22 @@ export class ClaudeMessageParser {
     }
 
     if (name === 'todowrite') {
-      const todos = input.todos as Array<{ status: string; content: string }> | undefined;
+      const todos = input.todos as Array<{ status: string; content: string; activeForm?: string }> | undefined;
       if (todos && Array.isArray(todos)) {
-        const count = todos.length;
-        const completed = todos.filter(t => t.status === 'completed').length;
-        const inProgress = todos.filter(t => t.status === 'in_progress').length;
-        return `TodoWrite: ${count} tasks (${completed} completed, ${inProgress} in progress)`;
+        const statusIcon = (status: string) => {
+          switch (status) {
+            case 'completed': return '✓';
+            case 'in_progress': return '→';
+            case 'pending': return '○';
+            default: return '·';
+          }
+        };
+
+        const taskLines = todos.map(t =>
+          `  ${statusIcon(t.status)} ${t.status === 'in_progress' && t.activeForm ? t.activeForm : t.content}`
+        ).join('\n');
+
+        return `TodoWrite:\n${taskLines}`;
       }
       return `${toolName}: updating tasks`;
     }
