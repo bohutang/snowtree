@@ -26,6 +26,17 @@ export abstract class AbstractAIPanelManager {
   protected resumeIdToPanel = new Map<string, string>();
   protected promptStartTimes = new Map<string, number>();
 
+  /**
+   * Pending agent session IDs that haven't been confirmed yet.
+   * Maps panelId -> { agentSessionId, agentCwd }
+   * These are saved only after receiving the first assistant message to ensure
+   * the CLI has successfully persisted the session.
+   */
+  protected pendingAgentSessionIds = new Map<string, {
+    agentSessionId: string;
+    agentCwd?: string;
+  }>();
+
   constructor(
     protected executor: AbstractExecutor,
     protected sessionManager: import('../../session').SessionManager,
@@ -34,6 +45,41 @@ export abstract class AbstractAIPanelManager {
   ) {
     this.setupEventHandlers();
     this.setupAnalyticsEventHandlers();
+  }
+
+  /**
+   * Persist a pending session ID after confirmation
+   */
+  protected confirmAndPersistSessionId(panelId: string): void {
+    const pending = this.pendingAgentSessionIds.get(panelId);
+    if (!pending) return;
+
+    this.logger?.verbose(`[${this.getAgentName()}PanelManager] Confirming session ID for panel ${panelId}: ${pending.agentSessionId}`);
+    try {
+      this.sessionManager.persistPanelAgentSessionId(panelId, pending.agentSessionId, {
+        agentCwd: pending.agentCwd,
+      });
+      this.pendingAgentSessionIds.delete(panelId);
+    } catch (err) {
+      this.logger?.error(`[${this.getAgentName()}PanelManager] Failed to persist session ID:`, err);
+    }
+  }
+
+  /**
+   * Discard a pending session ID that was never confirmed
+   */
+  protected discardPendingSessionId(panelId: string): void {
+    const pending = this.pendingAgentSessionIds.get(panelId);
+    if (!pending) return;
+
+    this.logger?.verbose(`[${this.getAgentName()}PanelManager] Discarding unconfirmed session ID for panel ${panelId}: ${pending.agentSessionId}`);
+    this.pendingAgentSessionIds.delete(panelId);
+
+    // Clear from in-memory mapping
+    const mapping = this.panelMappings.get(panelId);
+    if (mapping) {
+      mapping.agentSessionId = undefined;
+    }
   }
 
   /**
@@ -60,16 +106,24 @@ export abstract class AbstractAIPanelManager {
     // Forward output events (persistence is handled by events.ts to avoid duplicates)
     this.executor.on('output', (data: { panelId: string; sessionId: string; type: string; data: unknown; timestamp: Date }) => {
       const { panelId, sessionId } = data;
-      if (panelId && this.panelMappings.has(panelId)) {
-        // Emit panel-output event for real-time UI updates
-        this.executor.emit('panel-output', {
-          panelId,
-          sessionId,
-          type: data.type,
-          data: data.data,
-          timestamp: data.timestamp
-        });
+      if (!panelId || !this.panelMappings.has(panelId)) return;
+
+      // Confirm session ID on first assistant message (CLI has persisted successfully)
+      if (data.type === 'json' && typeof data.data === 'object' && data.data !== null) {
+        const jsonData = data.data as { type?: string };
+        if (jsonData.type === 'assistant') {
+          this.confirmAndPersistSessionId(panelId);
+        }
       }
+
+      // Emit panel-output event for real-time UI updates
+      this.executor.emit('panel-output', {
+        panelId,
+        sessionId,
+        type: data.type,
+        data: data.data,
+        timestamp: data.timestamp
+      });
     });
 
     // Forward spawned events
@@ -96,6 +150,9 @@ export abstract class AbstractAIPanelManager {
         return;
       }
 
+      // Discard unconfirmed session ID (CLI never persisted it)
+      this.discardPendingSessionId(panelId);
+
       this.executor.emit('panel-exit', { panelId, sessionId: resolvedSessionId, exitCode, signal });
     });
 
@@ -108,20 +165,18 @@ export abstract class AbstractAIPanelManager {
     });
 
     // Handle agent session ID updates
+    // Cache session ID but don't persist until first assistant message confirms CLI success
     this.executor.on('agentSessionId', (data: { panelId: string; sessionId: string; agentSessionId: string; agentCwd?: string }) => {
       const { panelId, agentSessionId, agentCwd } = data;
       const mapping = this.panelMappings.get(panelId);
-      if (mapping) {
-        mapping.agentSessionId = agentSessionId;
-        this.logger?.verbose(`[${this.getAgentName()}PanelManager] Updated agent session ID for panel ${panelId}: ${agentSessionId}`);
-        try {
-          this.sessionManager.persistPanelAgentSessionId(panelId, agentSessionId, {
-            agentCwd: typeof agentCwd === 'string' ? agentCwd : undefined,
-          });
-        } catch {
-          // best-effort
-        }
-      }
+      if (!mapping) return;
+
+      mapping.agentSessionId = agentSessionId;
+      this.pendingAgentSessionIds.set(panelId, {
+        agentSessionId,
+        agentCwd: typeof agentCwd === 'string' ? agentCwd : undefined,
+      });
+      this.logger?.verbose(`[${this.getAgentName()}PanelManager] Session ID cached, awaiting confirmation: ${agentSessionId}`);
     });
   }
 
