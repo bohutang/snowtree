@@ -1,218 +1,11 @@
-import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { ChevronDown, Sparkles, Code2, Loader2 } from 'lucide-react';
 import type { InputBarProps, CLITool, ImageAttachment, ExecutionMode } from './types';
 import { API } from '../../utils/api';
 import { withTimeout } from '../../utils/withTimeout';
 import type { TimelineEvent } from '../../types/timeline';
 import { clearSessionDraft, getSessionDraft, setSessionDraft } from './sessionDraftCache';
-import { useEditorAutoFocus } from './useEditorAutoFocus';
-
-const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/tiff'];
-const IS_MAC =
-  typeof navigator !== 'undefined' &&
-  // `navigator.platform` is deprecated but still present in Electron/Chromium; keep a UA fallback.
-  (/Mac/i.test(navigator.platform || '') || /Mac OS X/i.test(navigator.userAgent || ''));
-
-const BlockCursor: React.FC<{
-  editorRef: React.RefObject<HTMLDivElement | null>;
-  visible: boolean;
-  color: string;
-  opacity?: number;
-}> = ({ editorRef, visible, color, opacity = 0.7 }) => {
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
-  const lastPositionRef = useRef<{ top: number; left: number } | null>(null);
-  const updateTimeoutRef = useRef<number | null>(null);
-
-  useLayoutEffect(() => {
-    if (!visible || !editorRef.current) {
-      return;
-    }
-
-    const updatePosition = () => {
-      const editor = editorRef.current;
-      if (!editor) return;
-
-      const selection = window.getSelection();
-      const editorRect = editor.getBoundingClientRect();
-      const isEditorEmpty = (editor.textContent || '').trim().length === 0;
-
-      // Try to use current selection if available
-      if (selection && selection.rangeCount > 0) {
-        const range = selection.getRangeAt(0);
-
-        // Check if selection is within editor
-        if (editor.contains(range.startContainer)) {
-          // When there's a non-collapsed selection, the browser caret is typically hidden.
-          // Our custom block cursor should also hide to avoid looking like it's "jumping"
-          // (e.g. after Cmd/Ctrl+C where selection remains highlighted).
-          if (!range.collapsed) {
-            setPosition(null);
-            return;
-          }
-
-          // Use getBoundingClientRect directly (no temp span)
-          const rect = range.getBoundingClientRect();
-
-          // Check if rect is valid
-          if (rect.width !== 0 || rect.height !== 0) {
-            const newPos = {
-              top: rect.top - editorRect.top,
-              left: rect.left - editorRect.left,
-            };
-            setPosition(newPos);
-            lastPositionRef.current = newPos;
-            return;
-          }
-
-          // If rect is invalid (collapsed range with 0 dimensions), try getClientRects
-          const rects = range.getClientRects();
-          if (rects.length > 0) {
-            const firstRect = rects[0];
-            if (firstRect.width !== 0 || firstRect.height !== 0) {
-              const newPos = {
-                top: firstRect.top - editorRect.top,
-                left: firstRect.left - editorRect.left,
-              };
-              setPosition(newPos);
-              lastPositionRef.current = newPos;
-              return;
-            }
-          }
-
-          // Fallback: insert a temporary marker to get cursor position
-          // This handles cases like cursor after <br> where getBoundingClientRect returns zero
-          try {
-            const marker = document.createElement('span');
-            marker.setAttribute('data-cursor-marker', 'true');
-            marker.textContent = '\u200B'; // zero-width space
-
-            // Clone the range to avoid modifying the original selection
-            const markerRange = range.cloneRange();
-            markerRange.insertNode(marker);
-
-            const markerRect = marker.getBoundingClientRect();
-            const hasValidRect = markerRect.width !== 0 || markerRect.height !== 0;
-
-            // Immediately remove marker and restore selection
-            const parent = marker.parentNode;
-            if (parent) {
-              parent.removeChild(marker);
-              // Normalize to merge adjacent text nodes
-              parent.normalize();
-            }
-
-            if (hasValidRect) {
-              const newPos = {
-                top: markerRect.top - editorRect.top,
-                left: markerRect.left - editorRect.left,
-              };
-              setPosition(newPos);
-              lastPositionRef.current = newPos;
-              return;
-            }
-          } catch {
-            // best-effort, continue to fallback
-          }
-        }
-      }
-
-      // If no valid selection/rect:
-      // - When editor is empty, always reset to origin (avoid "drift" after clearing).
-      // - Otherwise, keep last known position for unfocused states.
-      if (isEditorEmpty) {
-        setPosition({ top: 0, left: 0 });
-        lastPositionRef.current = { top: 0, left: 0 };
-        return;
-      }
-      if (lastPositionRef.current) {
-        setPosition(lastPositionRef.current);
-        return;
-      }
-
-      setPosition({ top: 0, left: 0 });
-      lastPositionRef.current = { top: 0, left: 0 };
-    };
-
-    // Debounced update for better performance during rapid changes
-    const debouncedUpdate = () => {
-      if (updateTimeoutRef.current !== null) {
-        cancelAnimationFrame(updateTimeoutRef.current);
-      }
-      updateTimeoutRef.current = requestAnimationFrame(updatePosition);
-    };
-
-    updatePosition();
-
-    const editor = editorRef.current;
-    const observer = new MutationObserver((mutations) => {
-      // Ignore mutations caused by cursor marker insertion/removal
-      const isMarkerMutation = mutations.every((m) => {
-        if (m.type === 'childList') {
-          const isMarkerNode = (node: Node) =>
-            node instanceof HTMLElement && node.hasAttribute('data-cursor-marker');
-          return (
-            Array.from(m.addedNodes).every(isMarkerNode) ||
-            Array.from(m.removedNodes).every(isMarkerNode)
-          );
-        }
-        return false;
-      });
-      if (!isMarkerMutation) {
-        debouncedUpdate();
-      }
-    });
-    observer.observe(editor, {
-      childList: true,
-      subtree: true,
-      characterData: true
-    });
-
-    document.addEventListener('selectionchange', debouncedUpdate);
-
-    // Listen to all relevant events for immediate updates
-    editor.addEventListener('input', debouncedUpdate);
-    editor.addEventListener('paste', debouncedUpdate);
-    editor.addEventListener('cut', debouncedUpdate);
-    editor.addEventListener('scroll', debouncedUpdate);
-    editor.addEventListener('keydown', debouncedUpdate);
-    editor.addEventListener('keyup', debouncedUpdate);
-    editor.addEventListener('beforeinput', debouncedUpdate);
-    window.addEventListener('resize', debouncedUpdate);
-
-    return () => {
-      observer.disconnect();
-      document.removeEventListener('selectionchange', debouncedUpdate);
-      editor.removeEventListener('input', debouncedUpdate);
-      editor.removeEventListener('paste', debouncedUpdate);
-      editor.removeEventListener('cut', debouncedUpdate);
-      editor.removeEventListener('scroll', debouncedUpdate);
-      editor.removeEventListener('keydown', debouncedUpdate);
-      editor.removeEventListener('keyup', debouncedUpdate);
-      editor.removeEventListener('beforeinput', debouncedUpdate);
-      window.removeEventListener('resize', debouncedUpdate);
-      if (updateTimeoutRef.current !== null) {
-        cancelAnimationFrame(updateTimeoutRef.current);
-      }
-    };
-  }, [visible, editorRef]);
-
-  if (!visible || !position) return null;
-
-  return (
-    <div
-      className="absolute pointer-events-none"
-      data-testid="input-block-cursor"
-      style={{
-        top: position.top,
-        left: position.left,
-        width: '8px',
-        height: '19px',
-        backgroundColor: color,
-        opacity,
-      }}
-    />
-  );
-};
+import { InputBarEditor, type InputBarEditorHandle } from './InputBarEditor';
 
 const KnightRiderSpinner: React.FC<{ color?: string }> = ({ color = 'var(--st-accent)' }) => {
   const [frame, setFrame] = useState(0);
@@ -360,7 +153,7 @@ const CLISelector: React.FC<{
             tool.id === 'codex' ? toolSettings?.level : null,
             formatCliVersion(toolAvailability?.version)
           ].filter(Boolean).join(' · ');
-          
+
           return (
             <button
               key={tool.id}
@@ -405,22 +198,14 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
   onSend,
   onCancel,
   isProcessing,
-  placeholder = 'Message...',
+  placeholder,
   focusRequestId,
   initialExecutionMode,
 }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
   const [executionMode, setExecutionModeInternal] = useState<ExecutionMode>(initialExecutionMode || 'execute');
-
-  // Update local state when initialExecutionMode changes (e.g., session switch)
-  useEffect(() => {
-    if (initialExecutionMode !== undefined) {
-      setExecutionModeInternal(initialExecutionMode);
-    }
-  }, [initialExecutionMode]);
-
-  const editorRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<InputBarEditorHandle>(null);
   const [aiToolsStatus, setAiToolsStatus] = useState<AiToolsStatus | null>(null);
   const [, setAiToolsLoading] = useState(false);
   const [, setToolSettingsProbeLoading] = useState(true);
@@ -432,21 +217,44 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
   const [escPending, setEscPending] = useState(false);
   const escTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const imageIdCounter = useRef(0);
-  const savedSelectionRef = useRef<{ start: Node; offset: number } | null>(null);
   const inputHistoryRef = useRef<string[]>([]);
-  const historyIndexRef = useRef<number | null>(null); // index into inputHistoryRef.current
-  const draftBeforeHistoryRef = useRef<string>('');
-  const historyNavPrimedRef = useRef<'up' | 'down' | null>(null);
   const imageAttachmentsRef = useRef<ImageAttachment[]>([]);
   const restoringDraftRef = useRef(false);
   const draftSaveRafRef = useRef<number | null>(null);
-  const emitSelectionChange = useCallback(() => {
-    try {
-      document.dispatchEvent(new Event('selectionchange'));
-    } catch {
-      // best-effort
+
+  // Update local state when initialExecutionMode changes (e.g., session switch)
+  useEffect(() => {
+    if (initialExecutionMode !== undefined) {
+      setExecutionModeInternal(initialExecutionMode);
     }
-  }, []);
+  }, [initialExecutionMode]);
+
+  useEffect(() => {
+    const loadHistoryFromTimeline = async () => {
+      if (!_panelId) {
+        inputHistoryRef.current = [];
+        return;
+      }
+
+      try {
+        const res = await API.sessions.getTimeline(session.id);
+        if (res.success && res.data) {
+          const history = res.data
+            .filter((event) => event.kind === 'chat.user' && event.panel_id === _panelId)
+            .map((event) => typeof event.command === 'string' ? event.command : '')
+            .filter((text) => text.trim().length > 0);
+
+          // Deduplicate and limit to last 100
+          const deduped = [...new Set(history)].reverse();
+          inputHistoryRef.current = deduped.slice(-100);
+        }
+      } catch (error) {
+        console.error('[InputBar] Failed to load history from timeline:', error);
+      }
+    };
+
+    loadHistoryFromTimeline();
+  }, [session.id, _panelId]);
 
   useEffect(() => {
     imageAttachmentsRef.current = imageAttachments;
@@ -457,9 +265,9 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     const editor = editorRef.current;
     if (!editor) return;
 
-    const html = editor.innerHTML || '';
+    const json = editor.getJSON();
     const images = imageAttachmentsRef.current;
-    setSessionDraft(sessionId, { html, images });
+    setSessionDraft(sessionId, { json, images });
   }, []);
 
   const scheduleDraftSave = useCallback((sessionId: string) => {
@@ -471,146 +279,6 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     });
   }, [saveDraftNow]);
 
-  const getEditorText = useCallback(() => {
-    if (!editorRef.current) return '';
-    return editorRef.current.innerText || '';
-  }, []);
-
-  const insertTextAtCursor = useCallback((text: string) => {
-    const editor = editorRef.current;
-    if (!editor) return;
-
-    const selection = window.getSelection();
-    if (!selection) return;
-
-    let range: Range;
-
-    // Prefer the *current* selection if it's within the editor. This is critical for paste:
-    // `savedSelectionRef` can be stale (e.g. user clicked to reposition caret then pasted).
-    if (selection.rangeCount > 0 && editor.contains(selection.getRangeAt(0).startContainer)) {
-      range = selection.getRangeAt(0);
-    // Fallback: restore saved selection (used by global keypress/paste handlers when editor isn't focused).
-    } else if (savedSelectionRef.current && editor.contains(savedSelectionRef.current.start)) {
-      range = document.createRange();
-      try {
-        range.setStart(savedSelectionRef.current.start, savedSelectionRef.current.offset);
-        range.collapse(true);
-      } catch (err) {
-        range = document.createRange();
-        range.selectNodeContents(editor);
-        range.collapse(false); // End of editor
-      }
-    } else {
-      range = document.createRange();
-      range.selectNodeContents(editor);
-      range.collapse(false);
-    }
-
-    // Delete any selected content and insert text
-    range.deleteContents();
-    const textNode = document.createTextNode(text);
-    range.insertNode(textNode);
-
-    // Move cursor to end of inserted text.
-    // Keep the caret anchored inside the inserted text node: this is more stable for our
-    // custom BlockCursor positioning than using `setStartAfter` (which can land on the parent).
-    try {
-      const endOffset = textNode.data.length;
-      range.setStart(textNode, endOffset);
-      range.setEnd(textNode, endOffset);
-      range.collapse(true);
-    } catch {
-      // Fallback
-      range.setStartAfter(textNode);
-      range.setEndAfter(textNode);
-      range.collapse(true);
-    }
-
-    // Update selection
-    selection.removeAllRanges();
-    selection.addRange(range);
-
-    // Save the new position
-    const newOffset = range.startOffset;
-    savedSelectionRef.current = { start: range.startContainer, offset: newOffset };
-
-    // Trigger input event
-    editor.dispatchEvent(new Event('input', { bubbles: true }));
-    emitSelectionChange();
-  }, [emitSelectionChange]);
-
-  const insertImageTag = useCallback((index: number, id: string) => {
-    const editor = editorRef.current;
-    if (!editor) return;
-
-    const pill = document.createElement('span');
-    pill.textContent = `[img${index}]`;
-    pill.setAttribute('data-image-id', id);
-    pill.setAttribute('contenteditable', 'false');
-    pill.style.cssText = `
-      display: inline-block;
-      padding: 2px 6px;
-      margin: 0 2px;
-      border-radius: 4px;
-      font-family: monospace;
-      font-size: 13px;
-      background-color: color-mix(in srgb, var(--st-accent) 15%, transparent);
-      color: var(--st-accent);
-      user-select: all;
-      cursor: default;
-    `;
-
-    const selection = window.getSelection();
-    if (!selection) return;
-
-    let range: Range;
-
-    // Prefer the *current* selection if it's within the editor.
-    if (selection.rangeCount > 0 && editor.contains(selection.getRangeAt(0).startContainer)) {
-      range = selection.getRangeAt(0);
-    } else if (savedSelectionRef.current && editor.contains(savedSelectionRef.current.start)) {
-      range = document.createRange();
-      try {
-        range.setStart(savedSelectionRef.current.start, savedSelectionRef.current.offset);
-        range.collapse(true);
-      } catch {
-        range = document.createRange();
-        range.selectNodeContents(editor);
-        range.collapse(false);
-      }
-    } else {
-      range = document.createRange();
-      range.selectNodeContents(editor);
-      range.collapse(false);
-    }
-
-    // Insert pill
-    range.deleteContents();
-    range.insertNode(pill);
-    range.setStartAfter(pill);
-    range.setEndAfter(pill);
-
-    // Add space after pill
-    const space = document.createTextNode(' ');
-    range.insertNode(space);
-
-    range.setStart(space, space.length);
-    range.setEnd(space, space.length);
-    range.collapse(true);
-
-    // Update selection first
-    selection.removeAllRanges();
-    selection.addRange(range);
-
-    // Save the new position - pointing to the space text node
-    savedSelectionRef.current = { start: space, offset: space.length };
-
-    // Focus after setting selection
-    editor.focus();
-    editor.dispatchEvent(new Event('input', { bubbles: true }));
-    emitSelectionChange();
-  }, [emitSelectionChange]);
-
   const addImageAttachment = useCallback((file: File): Promise<void> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -619,154 +287,97 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
         const id = `img-${Date.now()}-${imageIdCounter.current++}`;
         const imageIndex = imageAttachments.length + 1;
 
-        setImageAttachments((prev) => [...prev, {
+        const newAttachment: ImageAttachment = {
           id,
           filename: file.name || 'image.png',
           mime: file.type || 'image/png',
           dataUrl,
-        }]);
+        };
 
-        insertImageTag(imageIndex, id);
+        setImageAttachments((prev) => [...prev, newAttachment]);
+
+        // Insert image pill into editor
+        if (editorRef.current) {
+          editorRef.current.insertImagePill(newAttachment, imageIndex);
+        }
+
         resolve();
       };
       reader.readAsDataURL(file);
     });
-  }, [imageAttachments.length, insertImageTag]);
+  }, [imageAttachments.length]);
 
-  const pasteFromNavigatorClipboard = useCallback(async () => {
-    try {
-      if (navigator.clipboard?.read) {
-        const clipboardItems = await navigator.clipboard.read();
-        let hasImage = false;
-        let hasText = false;
-
-        for (const item of clipboardItems) {
-          if (item.types.some((type) => ACCEPTED_IMAGE_TYPES.includes(type))) {
-            hasImage = true;
-            for (const type of item.types) {
-              if (ACCEPTED_IMAGE_TYPES.includes(type)) {
-                const blob = await item.getType(type);
-                const file = new File([blob], 'clipboard.png', { type });
-                await addImageAttachment(file);
-                break;
-              }
-            }
-          }
-          if (item.types.includes('text/plain')) {
-            hasText = true;
-          }
-        }
-
-        if (hasText && !hasImage) {
-          const text = await navigator.clipboard.readText();
-          insertTextAtCursor(text);
-        }
-        return;
-      }
-
-      // Fallback: text-only.
-      const text = await navigator.clipboard.readText();
-      insertTextAtCursor(text);
-    } catch {
-      // If async clipboard read isn't available/allowed (common in tests), fall back to readText.
-      try {
-        const text = await navigator.clipboard?.readText?.();
-        if (typeof text === 'string' && text.length > 0) insertTextAtCursor(text);
-      } catch {
-        // best-effort
-      }
-    }
-  }, [addImageAttachment, insertTextAtCursor]);
-
-  const handleEditorPaste = useCallback(async (e: React.ClipboardEvent<HTMLDivElement>) => {
-    // Always prevent default and handle manually
-    e.preventDefault();
-
-    const clipboardData = e.clipboardData;
-    if (!clipboardData) return;
-
-    const items = Array.from(clipboardData.items);
-    const imageItems = items.filter((item) => ACCEPTED_IMAGE_TYPES.includes(item.type));
-
-    // Handle images
-    if (imageItems.length > 0) {
-      for (const item of imageItems) {
-        const file = item.getAsFile();
-        if (file) await addImageAttachment(file);
-      }
-    }
-
-    // Handle text
-    if (clipboardData.types.includes('text/plain')) {
-      const text = clipboardData.getData('text/plain');
-      if (text) {
-        insertTextAtCursor(text);
-      }
-    }
-  }, [addImageAttachment, insertTextAtCursor]);
-
-  const moveCursorToEnd = useCallback(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    try {
-      const selection = window.getSelection();
-      if (!selection) return;
-      const range = document.createRange();
-      // Prefer anchoring inside the last text node for stable caret + BlockCursor.
-      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
-      let last: Text | null = null;
-      let node = walker.nextNode();
-      while (node) {
-        const t = node as Text;
-        if (t.data.length > 0) last = t;
-        node = walker.nextNode();
-      }
-      if (last) {
-        range.setStart(last, last.data.length);
-        range.collapse(true);
-      } else {
-        range.selectNodeContents(editor);
-        range.collapse(false);
-      }
-      selection.removeAllRanges();
-      selection.addRange(range);
-      savedSelectionRef.current = { start: range.startContainer, offset: range.startOffset };
-      emitSelectionChange();
-    } catch {
-      // best-effort
-    }
-  }, [emitSelectionChange]);
-
-  // Restore unsent draft (text + image pills) when switching sessions.
+  // Restore unsent draft when switching sessions
   useEffect(() => {
     const sessionId = session.id;
     const editor = editorRef.current;
     if (!editor) return;
 
     restoringDraftRef.current = true;
-    const draft = getSessionDraft(sessionId);
-    if (draft) {
-      editor.innerHTML = draft.html;
-      setImageAttachments(draft.images);
-    } else {
-      editor.innerHTML = '';
+
+    try {
+      const draft = getSessionDraft(sessionId);
+      if (draft) {
+        // Try new JSON format first
+        if (draft.json) {
+          // Validate JSON has required structure for Tiptap
+          if (typeof draft.json === 'object' && draft.json.type === 'doc') {
+            editor.setContent(draft.json);
+            setImageAttachments(draft.images);
+          } else {
+            console.warn('[InputBar] Invalid Tiptap JSON format, clearing');
+            clearSessionDraft(sessionId);
+            editor.clear();
+            setImageAttachments([]);
+          }
+        }
+        // Fallback to legacy HTML format (stored as JSON string)
+        else if (draft.html) {
+          try {
+            const json = JSON.parse(draft.html);
+            if (typeof json === 'object' && json.type === 'doc') {
+              editor.setContent(json);
+              setImageAttachments(draft.images);
+            } else {
+              // Invalid JSON structure, treat as plain HTML
+              const tempDiv = document.createElement('div');
+              tempDiv.innerHTML = draft.html;
+              const text = tempDiv.innerText || tempDiv.textContent || '';
+              editor.setContent(text);
+              setImageAttachments(draft.images);
+            }
+          } catch {
+            // If JSON parse fails, treat it as plain HTML (very old format)
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = draft.html;
+            const text = tempDiv.innerText || tempDiv.textContent || '';
+            editor.setContent(text);
+            setImageAttachments(draft.images);
+          }
+        } else {
+          editor.clear();
+          setImageAttachments([]);
+        }
+      } else {
+        editor.clear();
+        setImageAttachments([]);
+      }
+    } catch (err) {
+      console.error('[InputBar] Failed to restore draft:', err);
+      // Delete the corrupted draft to prevent infinite loop
+      clearSessionDraft(sessionId);
+      editor.clear();
       setImageAttachments([]);
+    } finally {
+      // Always set flag back to false in finally block to ensure it happens
+      // AFTER all operations (including error handling) complete
+      restoringDraftRef.current = false;
     }
 
-    // Reset selection-related refs; old nodes may no longer exist.
-    savedSelectionRef.current = null;
-    historyIndexRef.current = null;
-    draftBeforeHistoryRef.current = '';
-    historyNavPrimedRef.current = null;
+    // Place caret at end
+    requestAnimationFrame(() => editor.focus());
 
-    restoringDraftRef.current = false;
-
-    // Place caret at end for consistent typing UX.
-    requestAnimationFrame(() => moveCursorToEnd());
-    editor.dispatchEvent(new Event('input', { bubbles: true }));
-    emitSelectionChange();
-
-    // Save current session draft when switching away/unmounting.
+    // Save current session draft when switching away/unmounting
     return () => {
       if (draftSaveRafRef.current !== null) {
         cancelAnimationFrame(draftSaveRafRef.current);
@@ -774,56 +385,25 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       }
       saveDraftNow(sessionId);
     };
-  }, [emitSelectionChange, moveCursorToEnd, saveDraftNow, session.id]);
+  }, [saveDraftNow, session.id]);
 
-  const handleEditorCopy = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
-    void e;
-    // Allow the browser to perform the copy. Then collapse selection and move caret to the end,
-    // which matches typical chat-input UX (copy then keep typing at end).
-    const editor = editorRef.current;
-    if (!editor) return;
-
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-    const range = selection.getRangeAt(0);
-    if (!editor.contains(range.startContainer)) return;
-
-    requestAnimationFrame(() => moveCursorToEnd());
-  }, [moveCursorToEnd]);
-
-  const handleEditorInput = useCallback(() => {
+  const handleEditorUpdate = useCallback(() => {
+    // Don't save drafts while restoring to prevent infinite loops
+    if (restoringDraftRef.current) return;
     scheduleDraftSave(session.id);
   }, [scheduleDraftSave, session.id]);
 
   useEffect(() => {
-    // Persist draft when image attachments change (e.g., paste/remove pill).
+    // Persist draft when image attachments change (but not during restoration)
+    if (restoringDraftRef.current) return;
     scheduleDraftSave(session.id);
   }, [imageAttachments, scheduleDraftSave, session.id]);
 
-  useEffect(() => {
+  const handleSubmit = useCallback(() => {
     const editor = editorRef.current;
     if (!editor) return;
 
-    const observer = new MutationObserver(() => {
-      const currentPills = editor.querySelectorAll('[data-image-id]');
-      const currentIds = new Set(Array.from(currentPills).map(p => p.getAttribute('data-image-id')));
-      
-      setImageAttachments((prev) => {
-        if (prev.length === 0) return prev;
-        const next = prev.filter((img) => currentIds.has(img.id));
-        if (next.length === prev.length) return prev;
-        return next;
-      });
-    });
-
-    // Only observe structural changes. Observing `characterData` makes this fire on every keystroke,
-    // which is expensive and can create feedback loops.
-    observer.observe(editor, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, []);
-
-  const handleSubmit = useCallback(() => {
-    const text = getEditorText().trim();
+    const text = editor.getText().trim();
     if (!text && imageAttachments.length === 0) return;
     if (isProcessing) return;
 
@@ -832,228 +412,15 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
       if (hist.length === 0 || hist[hist.length - 1] !== text) {
         inputHistoryRef.current = [...hist, text].slice(-100);
       }
-      historyIndexRef.current = null;
-      draftBeforeHistoryRef.current = '';
     }
 
     onSend(text, imageAttachments.length > 0 ? imageAttachments : undefined, executionMode === 'plan');
     clearSessionDraft(session.id);
-    if (editorRef.current) {
-      const editor = editorRef.current;
-      editor.innerHTML = '';
-
-      // Reset selection to the start so BlockCursor doesn't keep a stale/removed position.
-      // Also reset the saved selection, since previous nodes may no longer exist.
-      try {
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(editor);
-        range.collapse(true);
-        selection?.removeAllRanges();
-        selection?.addRange(range);
-        savedSelectionRef.current = { start: editor, offset: 0 };
-        emitSelectionChange();
-      } catch {
-        savedSelectionRef.current = null;
-      }
-    }
+    editor.clear();
     setImageAttachments([]);
-  }, [emitSelectionChange, getEditorText, imageAttachments, isProcessing, onSend]);
+  }, [imageAttachments, isProcessing, onSend, executionMode, session.id]);
 
   const isRunning = session.status === 'running' || session.status === 'initializing';
-
-  const placeCaretAtBoundary = useCallback((which: 'start' | 'end') => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    try {
-      const selection = window.getSelection();
-      if (!selection) return;
-
-      const range = document.createRange();
-
-      // Prefer anchoring inside a text node (more reliable for visual caret + BlockCursor).
-      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
-      const texts: Text[] = [];
-      let node = walker.nextNode();
-      while (node) {
-        const t = node as Text;
-        if (t.data.length > 0) texts.push(t);
-        node = walker.nextNode();
-      }
-
-      if (texts.length === 0) {
-        range.selectNodeContents(editor);
-        range.collapse(which === 'start');
-      } else if (which === 'start') {
-        range.setStart(texts[0], 0);
-        range.collapse(true);
-      } else {
-        const last = texts[texts.length - 1];
-        range.setStart(last, last.data.length);
-        range.collapse(true);
-      }
-
-      selection.removeAllRanges();
-      selection.addRange(range);
-      savedSelectionRef.current = { start: range.startContainer, offset: range.startOffset };
-      emitSelectionChange();
-    } catch {
-      // best-effort
-    }
-  }, [emitSelectionChange]);
-
-  const setEditorTextAndMoveCaretToEnd = useCallback((text: string) => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    editor.textContent = text;
-    editor.dispatchEvent(new Event('input', { bubbles: true }));
-    placeCaretAtBoundary('end');
-  }, [placeCaretAtBoundary]);
-
-  const isCaretAtBoundary = useCallback((which: 'start' | 'end'): boolean => {
-    const editor = editorRef.current;
-    if (!editor) return false;
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return false;
-    const caret = selection.getRangeAt(0);
-    if (!editor.contains(caret.startContainer)) return false;
-    if (!caret.collapsed) return false;
-    const getCaretTextOffset = (): number | null => {
-      try {
-        if (caret.startContainer === editor) {
-          const childCount = editor.childNodes.length;
-          const idx = Math.max(0, Math.min(caret.startOffset, childCount));
-          let off = 0;
-          for (let i = 0; i < idx; i++) {
-            off += (editor.childNodes[i]?.textContent || '').length;
-          }
-          return off;
-        }
-
-        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
-        let off = 0;
-        let node: Node | null = walker.nextNode();
-        while (node) {
-          if (node === caret.startContainer) {
-            const textLen = (node.textContent || '').length;
-            const clamped = Math.max(0, Math.min(caret.startOffset, textLen));
-            return off + clamped;
-          }
-          off += (node.textContent || '').length;
-          node = walker.nextNode();
-        }
-      } catch {
-        // ignore
-      }
-      return null;
-    };
-
-    const offset = getCaretTextOffset();
-    if (offset === null) return false;
-    const total = (editor.textContent || '').length;
-    return which === 'start' ? offset === 0 : offset === total;
-  }, []);
-
-  const moveCaretToBoundary = useCallback((which: 'start' | 'end') => {
-    placeCaretAtBoundary(which);
-  }, [placeCaretAtBoundary]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (isRunning) {
-      e.preventDefault();
-      return;
-    }
-
-    // macOS convenience: allow Ctrl+V to paste images/text (Cmd+V is handled by the paste event).
-    if (IS_MAC && e.ctrlKey && !e.metaKey && (e.key === 'v' || e.key === 'V')) {
-      e.preventDefault();
-      void pasteFromNavigatorClipboard();
-      return;
-    }
-
-    // Input history navigation (shell-like).
-    // - First ArrowUp/Down jumps caret to start/end.
-    // - Second ArrowUp/Down (when already at boundary) cycles through sent prompts.
-    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-      const editor = editorRef.current;
-      if (!editor) return;
-
-      const history = inputHistoryRef.current;
-      const inHistory = historyIndexRef.current !== null;
-      const direction: 'up' | 'down' = e.key === 'ArrowUp' ? 'up' : 'down';
-
-      const goPrev = () => {
-        if (history.length === 0) return;
-        if (historyIndexRef.current === null) {
-          draftBeforeHistoryRef.current = getEditorText();
-          historyIndexRef.current = history.length - 1;
-        } else if (historyIndexRef.current > 0) {
-          historyIndexRef.current -= 1;
-        }
-        const idx = historyIndexRef.current;
-        if (idx === null) return;
-        setEditorTextAndMoveCaretToEnd(history[idx]);
-      };
-
-      const goNext = () => {
-        if (history.length === 0) return;
-        if (historyIndexRef.current === null) return;
-        if (historyIndexRef.current < history.length - 1) {
-          historyIndexRef.current += 1;
-          setEditorTextAndMoveCaretToEnd(history[historyIndexRef.current]);
-          return;
-        }
-        // Past the newest entry => restore draft and exit history.
-        historyIndexRef.current = null;
-        const draft = draftBeforeHistoryRef.current;
-        draftBeforeHistoryRef.current = '';
-        setEditorTextAndMoveCaretToEnd(draft);
-      };
-
-      e.preventDefault();
-
-      // While browsing history, ArrowUp/Down always navigates history.
-      if (inHistory) {
-        historyNavPrimedRef.current = direction;
-        if (direction === 'up') goPrev();
-        else goNext();
-        return;
-      }
-
-      // Two-step behavior: first press always moves caret to boundary (even if already there),
-      // second press (while still at boundary) triggers history navigation.
-      if (historyNavPrimedRef.current !== direction) {
-        historyNavPrimedRef.current = direction;
-        moveCaretToBoundary(direction === 'up' ? 'start' : 'end');
-        return;
-      }
-
-      if (direction === 'up') {
-        if (!isCaretAtBoundary('start')) {
-          moveCaretToBoundary('start');
-          return;
-        }
-        goPrev();
-        return;
-      }
-
-      // direction === 'down'
-      if (!isCaretAtBoundary('end')) {
-        moveCaretToBoundary('end');
-        return;
-      }
-      // At end and not in history: nothing to do.
-      return;
-    }
-
-    // Any other key resets the two-step arrow priming.
-    historyNavPrimedRef.current = null;
-
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  }, [getEditorText, handleSubmit, isCaretAtBoundary, isRunning, moveCaretToBoundary, pasteFromNavigatorClipboard, setEditorTextAndMoveCaretToEnd]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -1095,14 +462,106 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
     };
   }, [isRunning, escPending, onCancel]);
 
-  useEditorAutoFocus(editorRef, {
-    focusRequestId,
-    acceptedImageTypes: ACCEPTED_IMAGE_TYPES,
-    emitSelectionChange,
-    insertTextAtCursor,
-    pasteFromNavigatorClipboard,
-    addImageAttachment
-  });
+  // Focus on focusRequestId change
+  useEffect(() => {
+    if (focusRequestId !== undefined) {
+      editorRef.current?.focus();
+    }
+  }, [focusRequestId]);
+
+  // Auto-focus: Global keyboard events that type into editor when not focused
+  useEffect(() => {
+    const focusEditor = () => {
+      editorRef.current?.focus();
+      return editorRef.current?.editor;
+    };
+
+    const handleGlobalKeyPress = (e: KeyboardEvent) => {
+      const editor = editorRef.current?.editor;
+      if (!editor || editor.view.hasFocus()) return;
+
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      // Cmd/Ctrl+A: Select all in editor
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        const ed = focusEditor();
+        if (ed) {
+          ed.commands.selectAll();
+        }
+        return;
+      }
+
+      // Cmd/Ctrl+V: Paste into editor
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'v' || e.key === 'V')) {
+        e.preventDefault();
+        focusEditor();
+        // Let the editor's paste handler deal with it
+        return;
+      }
+
+      // Backspace/Delete: Focus and delete
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        const ed = focusEditor();
+        if (ed) {
+          if (e.key === 'Backspace') {
+            ed.commands.deleteRange({ from: ed.state.selection.from - 1, to: ed.state.selection.from });
+          } else {
+            ed.commands.deleteRange({ from: ed.state.selection.from, to: ed.state.selection.from + 1 });
+          }
+        }
+        return;
+      }
+
+      // Skip modifier keys and special keys
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const skipKeys = [
+        'Escape', 'Tab', 'Enter',
+        'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+        'Home', 'End', 'PageUp', 'PageDown',
+        'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'
+      ];
+      if (skipKeys.includes(e.key)) return;
+
+      // Regular character: Focus and type
+      e.preventDefault();
+      const ed = focusEditor();
+      if (ed) {
+        ed.commands.insertContent(e.key);
+      }
+    };
+
+    const handleGlobalPasteCapture = (e: ClipboardEvent) => {
+      const editor = editorRef.current?.editor;
+      if (!editor || editor.view.hasFocus()) return;
+
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+
+      e.preventDefault();
+      focusEditor();
+      // The editor's PasteImage extension will handle the paste
+    };
+
+    document.addEventListener('keydown', handleGlobalKeyPress, { capture: true });
+    document.addEventListener('paste', handleGlobalPasteCapture, { capture: true });
+    return () => {
+      document.removeEventListener('keydown', handleGlobalKeyPress, { capture: true });
+      document.removeEventListener('paste', handleGlobalPasteCapture, { capture: true });
+    };
+  }, []);
 
   const loadAvailability = useCallback(async (force?: boolean) => {
     setAiToolsLoading(true);
@@ -1227,49 +686,19 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
               style={{ backgroundColor: 'var(--st-editor)' }}
             >
               <div className="relative">
-                <div
+                <InputBarEditor
                   ref={editorRef}
-                  contentEditable
-                  role="textbox"
-                  aria-label={placeholder}
-                  aria-multiline="true"
-                  data-testid="input-editor"
-                  onKeyDown={handleKeyDown}
-                  onInput={handleEditorInput}
-                  onPaste={handleEditorPaste}
-                  onCopy={handleEditorCopy}
-                  onFocus={() => {
-                    setIsFocused(true);
-                  }}
+                  placeholder={placeholder}
+                  isRunning={isRunning}
+                  onUpdate={handleEditorUpdate}
+                  onSubmit={handleSubmit}
+                  inputHistory={inputHistoryRef}
+                  onFocus={() => setIsFocused(true)}
                   onBlur={() => {
                     setIsFocused(false);
                     saveDraftNow(session.id);
-                    // Save cursor position on blur
-                    const selection = window.getSelection();
-                    if (selection && selection.rangeCount > 0) {
-                      const range = selection.getRangeAt(0);
-                      if (editorRef.current?.contains(range.startContainer)) {
-                        savedSelectionRef.current = {
-                          start: range.startContainer,
-                          offset: range.startOffset,
-                        };
-                      }
-                    }
                   }}
-                  className="w-full bg-transparent text-[13px] focus:outline-none min-h-[20px] max-h-[144px] overflow-y-auto"
-                  style={{
-                    color: isRunning ? 'var(--st-text-faint)' : 'var(--st-text)',
-                    caretColor: 'transparent',
-                    lineHeight: '1.5',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                  }}
-                />
-                <BlockCursor
-                  editorRef={editorRef}
-                  visible={!isRunning}
-                  color="var(--st-text)"
-                  opacity={isFocused ? 0.7 : 0.3}
+                  onImagePaste={addImageAttachment}
                 />
               </div>
 
@@ -1294,10 +723,10 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
                 )}
               </div>
             </div>
-            <div 
+            <div
               className="h-[3px]"
-              style={{ 
-                background: `linear-gradient(to bottom, var(--st-editor) 0%, transparent 100%)` 
+              style={{
+                background: `linear-gradient(to bottom, var(--st-editor) 0%, transparent 100%)`
               }}
             />
           </div>

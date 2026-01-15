@@ -161,7 +161,7 @@ export function registerAppHandlers(ipcMain: IpcMain, services: AppServices): vo
   });
 
   // AI tool config probe (model/level) from CLI-owned config files.
-  // NOTE: This must NOT leak secrets (tokens, base URLs, etc). Only return the fields we display.
+  // NOTE: This must NOT leak secrets (tokens, base URLs, etc.). Only return fields we display.
   ipcMain.handle('ai-tools:get-settings', async () => {
     try {
       const home = os.homedir();

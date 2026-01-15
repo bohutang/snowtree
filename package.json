@@ -25,7 +25,7 @@
   },
   "scripts": {
     "predev": "pnpm --filter @snowtree/core build",
-    "dev": "concurrently \"pnpm --filter @snowtree/desktop dev\" \"pnpm --filter @snowtree/ui dev\" \"wait-on http://localhost:4521 && node tools/scripts/run-electron-dev.mjs\"",
+    "dev": "NO_PROXY=localhost,127.0.0.1 concurrently \"pnpm --filter @snowtree/desktop dev\" \"pnpm --filter @snowtree/ui dev\" \"wait-on http://localhost:4521 && node tools/scripts/run-electron-dev.mjs\"",
     "build": "pnpm --filter @snowtree/core build && pnpm --filter @snowtree/desktop build && pnpm --filter @snowtree/ui build && pnpm run build:electron",
     "build:desktop": "pnpm --filter @snowtree/desktop build",
     "build:ui": "pnpm --filter @snowtree/ui build",

@@ -753,3 +753,15 @@ body {
 .visual-mode-selected {
   animation: visualModeSelect 0.15s ease-out;
 }
+
+/* Tiptap Editor Placeholder Styling */
+.tiptap-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--st-text-faint);
+  pointer-events: none;
+  height: 0;
+  font-family: Monaco, monospace;
+  font-size: 14px;
+  font-weight: 400;
+}

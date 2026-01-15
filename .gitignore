@@ -34,3 +34,10 @@ worktrees/
 
 # macOS
 .DS_Store
+
+# Backup files
+*.backup
+*.bak
+
+# Migration documentation
+.claude/

@@ -239,7 +239,7 @@ export class API {
   };
 
   static aiTools = {
-    async getStatus(options?: { force?: boolean }) {
+    getStatus(options?: { force?: boolean }) {
       requireElectron();
       return window.electronAPI.aiTools.getStatus(options);
     },
@@ -249,3 +249,4 @@ export class API {
     },
   };
 }
+

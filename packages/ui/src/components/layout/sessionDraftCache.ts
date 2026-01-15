@@ -1,7 +1,9 @@
 import type { ImageAttachment } from './types';
+import type { JSONContent } from '@tiptap/core';
 
 export type SessionDraft = {
-  html: string;
+  html?: string; // Legacy format
+  json?: JSONContent; // New Tiptap format
   images: ImageAttachment[];
   updatedAt: number;
 };
@@ -22,13 +24,21 @@ export function getSessionDraft(sessionId: string): SessionDraft | null {
 }
 
 export function setSessionDraft(sessionId: string, draft: Omit<SessionDraft, 'updatedAt'>): void {
-  const html = String(draft.html ?? '');
+  const html = draft.html ? String(draft.html) : undefined;
+  const json = draft.json || undefined;
   const images = Array.isArray(draft.images) ? draft.images : [];
-  if (html.trim().length === 0 && images.length === 0) {
+
+  // If both html/json are empty and no images, delete draft
+  const hasContent = (html && html.trim().length > 0) ||
+                     (json && json.content && json.content.length > 0) ||
+                     images.length > 0;
+
+  if (!hasContent) {
     draftsBySessionId.delete(sessionId);
     return;
   }
-  draftsBySessionId.set(sessionId, { html, images, updatedAt: Date.now() });
+
+  draftsBySessionId.set(sessionId, { html, json, images, updatedAt: Date.now() });
   pruneIfNeeded();
 }
 
