@@ -262,8 +262,11 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
             </button>
           </div>
 
-          {isPRExpanded && (
-            <div className="px-3 pb-3 space-y-2">
+          <div
+            className={`transition-all origin-top ${isPRExpanded ? 'opacity-100 scale-y-100' : 'opacity-0 scale-y-0 h-0'}`}
+            style={{ transitionDuration: '150ms' }}
+          >
+            <div className="px-3 pt-3 pb-3 space-y-2">
               {/* PR Info Card */}
               {remotePullRequest?.number && remotePullRequest.url ? (
                 <div
@@ -474,7 +477,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                 )}
               </div>
             </div>
-          )}
+          </div>
         </div>
 
         {/* 2. Commits Section (flex-shrink-0) */}
@@ -500,7 +503,10 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
             </button>
           </div>
 
-          {isCommitsExpanded && (
+          <div
+            className={`transition-all origin-top ${isCommitsExpanded ? 'opacity-100 scale-y-100' : 'opacity-0 scale-y-0 h-0'}`}
+            style={{ transitionDuration: '150ms' }}
+          >
             <div className="max-h-48 overflow-y-auto">
               <CommitList
                 commits={commits}
@@ -510,7 +516,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                 onBaseCommitOpenGitHub={handleBaseCommitOpenGitHub}
               />
             </div>
-          )}
+          </div>
         </div>
 
         {/* 3. Changes Section (below Commits, max-height with scroll) */}

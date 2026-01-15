@@ -2,11 +2,18 @@ import { create } from 'zustand';
 import type { GitStatus, Session } from '../types/session';
 import { getWorkspaceStage, type WorkspaceStageInput } from '../types/workspace';
 
+export interface TodoItem {
+  status: 'pending' | 'in_progress' | 'completed';
+  content: string;
+  activeForm?: string;
+}
+
 interface SessionStore {
   sessions: Session[];
   activeSessionId: string | null;
   gitStatusLoading: Set<string>;
   isLoaded: boolean;
+  sessionTodos: Record<string, TodoItem[]>; // sessionId -> todos
 
   loadSessions: (sessions: Session[]) => void;
   addSession: (session: Session) => void;
@@ -16,6 +23,7 @@ interface SessionStore {
   updateSessionGitStatus: (sessionId: string, gitStatus: GitStatus) => void;
   setGitStatusLoading: (sessionId: string, loading: boolean) => void;
   updateWorkspaceStage: (sessionId: string, data: WorkspaceStageInput) => void;
+  updateSessionTodos: (sessionId: string, todos: TodoItem[]) => void;
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -27,6 +35,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   })(),
   gitStatusLoading: new Set(),
   isLoaded: false,
+  sessionTodos: {},
 
   loadSessions: (sessions) => {
     const state = get();
@@ -88,6 +97,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       sessions: state.sessions.map((s) =>
         s.id === sessionId ? { ...s, workspaceStage: getWorkspaceStage(data) } : s
       ),
+    })),
+
+  updateSessionTodos: (sessionId, todos) =>
+    set((state) => ({
+      sessionTodos: { ...state.sessionTodos, [sessionId]: todos },
     })),
 }));
 

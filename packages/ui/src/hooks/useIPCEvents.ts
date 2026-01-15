@@ -6,7 +6,7 @@ import type { GitStatus, Session } from '../types/session';
 import notificationSound from '../assets/sounds/notification.wav';
 
 export function useIPCEvents() {
-  const { loadSessions, addSession, updateSession, deleteSession, setGitStatusLoading, updateSessionGitStatus } = useSessionStore();
+  const { loadSessions, addSession, updateSession, deleteSession, setGitStatusLoading, updateSessionGitStatus, updateSessionTodos } = useSessionStore();
   const { showError } = useErrorStore();
 
   useEffect(() => {
@@ -80,7 +80,15 @@ export function useIPCEvents() {
       }));
     }
 
+    const maybeOnSessionTodosUpdate = window.electronAPI.events.onSessionTodosUpdate;
+    if (maybeOnSessionTodosUpdate) {
+      unsubscribes.push(maybeOnSessionTodosUpdate((data) => {
+        console.log('[useIPCEvents] Session todos update received for session:', data.sessionId, 'todos:', data.todos);
+        updateSessionTodos(data.sessionId, data.todos);
+      }));
+    }
+
     return () => unsubscribes.forEach((u) => u());
-  }, [loadSessions, addSession, updateSession, deleteSession, setGitStatusLoading, updateSessionGitStatus]);
+  }, [loadSessions, addSession, updateSession, deleteSession, setGitStatusLoading, updateSessionGitStatus, updateSessionTodos]);
 }
 

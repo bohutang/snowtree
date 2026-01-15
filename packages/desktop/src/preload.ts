@@ -126,5 +126,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onUpdateAvailable: (cb: (version: string) => void) => on('update:available', cb),
     onUpdateDownloaded: (cb: () => void) => on('update:downloaded', cb),
     onAgentCompleted: (cb: (data: { sessionId: string }) => void) => on('agent:completed', cb),
+    onSessionTodosUpdate: (cb: (data: { sessionId: string; todos: Array<{ status: string; content: string; activeForm?: string }> }) => void) => on('session-todos:update', cb),
   },
 });

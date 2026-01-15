@@ -107,6 +107,15 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
         return;
       }
 
+      // Handle TodoWrite tool calls
+      if (entry.entryType === 'tool_use' && entry.toolName?.toLowerCase() === 'todowrite') {
+        const input = (meta.input as { todos?: Array<{ status: string; content: string; activeForm?: string }> }) || {};
+        if (input.todos && Array.isArray(input.todos)) {
+          console.log('[events.ts] TodoWrite detected, sending session-todos:update event');
+          send('session-todos:update', { sessionId, todos: input.todos });
+        }
+      }
+
       if (entry.entryType === 'assistant_message') {
         const content = typeof entry.content === 'string' ? entry.content : '';
         const trimmedContent = content.trim();

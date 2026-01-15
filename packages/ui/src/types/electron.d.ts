@@ -2,6 +2,7 @@ import type { Session, GitStatus } from './session';
 import type { TimelineEvent } from './timeline';
 import type { DiffTarget } from './diff';
 import type { ToolPanel } from '@snowtree/core/types/panels';
+import type { TodoItem } from '../stores/sessionStore';
 
 export interface IPCResponse<T = unknown> {
   success: boolean;
@@ -176,6 +177,7 @@ export interface ElectronAPI {
     onUpdateAvailable: (callback: (version: string) => void) => () => void;
     onUpdateDownloaded: (callback: () => void) => () => void;
     onAgentCompleted: (callback: (data: { sessionId: string }) => void) => () => void;
+    onSessionTodosUpdate: (callback: (data: { sessionId: string; todos: TodoItem[] }) => void) => () => void;
   };
 }
 
