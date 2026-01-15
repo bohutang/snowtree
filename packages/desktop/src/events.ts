@@ -109,14 +109,19 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
 
       if (entry.entryType === 'assistant_message') {
         const content = typeof entry.content === 'string' ? entry.content : '';
-        if (!content.trim()) {
-          console.log('[events.ts] Skipping empty assistant_message');
-          return;
-        }
+        const trimmedContent = content.trim();
+        const buffered = streamingAssistantBufferByPanel.get(panelId);
+        const bufferedText = typeof buffered?.content === 'string' ? buffered.content : '';
+        const trimmedBuffered = bufferedText.trim();
         const isStreaming = Boolean((meta as { streaming?: unknown }).streaming);
-        console.log('[events.ts] assistant_message:', { isStreaming, contentLen: content.length, panelId: panelId.slice(0, 8) });
 
         if (isStreaming) {
+          if (!trimmedContent) {
+            console.log('[events.ts] Skipping empty streaming assistant_message');
+            return;
+          }
+
+          console.log('[events.ts] assistant_message:', { isStreaming, contentLen: content.length, panelId: panelId.slice(0, 8) });
           streamingAssistantBufferByPanel.set(panelId, { content, timestamp: entry.timestamp });
           if (!pendingStreamFlushByPanel.has(panelId)) {
             const t = setTimeout(() => {
@@ -137,21 +142,53 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
           return;
         }
 
-        const last = lastAssistantByPanel.get(panelId);
-        if (last === content) return;
-        lastAssistantByPanel.set(panelId, content);
+        if (!trimmedContent && !trimmedBuffered) {
+          console.log('[events.ts] Skipping empty assistant_message');
+          const pending = pendingStreamFlushByPanel.get(panelId);
+          if (pending) clearTimeout(pending);
+          pendingStreamFlushByPanel.delete(panelId);
+          streamingAssistantBufferByPanel.delete(panelId);
+          return;
+        }
+
+        console.log('[events.ts] assistant_message:', { isStreaming, contentLen: content.length, panelId: panelId.slice(0, 8) });
         const pending = pendingStreamFlushByPanel.get(panelId);
         if (pending) clearTimeout(pending);
         pendingStreamFlushByPanel.delete(panelId);
+
+        let finalText = content;
+        let finalTimestamp = entry.timestamp;
+        if (trimmedBuffered) {
+          const streamHasMore =
+            !trimmedContent ||
+            trimmedBuffered.length > trimmedContent.length ||
+            (trimmedBuffered !== trimmedContent && trimmedBuffered.includes(trimmedContent));
+          if (streamHasMore) {
+            finalText = bufferedText;
+            if (buffered?.timestamp) finalTimestamp = buffered.timestamp;
+          }
+        }
+
+        if (!finalText.trim()) {
+          streamingAssistantBufferByPanel.delete(panelId);
+          return;
+        }
+
+        const last = lastAssistantByPanel.get(panelId);
+        if (last === finalText) {
+          streamingAssistantBufferByPanel.delete(panelId);
+          return;
+        }
+        lastAssistantByPanel.set(panelId, finalText);
         streamingAssistantBufferByPanel.delete(panelId);
         try {
           const tool = typeof meta.tool === 'string' ? meta.tool : undefined;
-          sessionManager.finalizeStreamingAssistantTimeline(panelId, sessionId, tool, content, entry.timestamp);
+          sessionManager.finalizeStreamingAssistantTimeline(panelId, sessionId, tool, finalText, finalTimestamp);
         } catch {
           // best-effort
         }
         try {
-          sessionManager.addPanelConversationMessage(panelId, 'assistant', content, { recordTimeline: false });
+          sessionManager.addPanelConversationMessage(panelId, 'assistant', finalText, { recordTimeline: false });
         } catch {
           // best-effort
         }
