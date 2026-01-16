@@ -120,7 +120,7 @@ export class UpdateManager extends EventEmitter {
     const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
     const version = this.latestVersion;
     const dmgName = `snowtree-${version}-macOS-${arch}.dmg`;
-    const downloadUrl = `https://github.com/bohutang/snowtree/releases/download/v${version}/${dmgName}`;
+    const downloadUrl = `https://github.com/databendlabs/snowtree/releases/download/v${version}/${dmgName}`;
     const tmpDir = os.tmpdir();
     const dmgPath = path.join(tmpDir, dmgName);
 
