@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, X } from 'lucide-react';
 import type { TodoItem } from '../stores/sessionStore';
 
 interface TodoListProps {
   todos: TodoItem[];
+  onClear?: () => void;
 }
 
 function getStatusIcon(status: string): string {
@@ -34,7 +35,7 @@ const colors = {
   success: 'var(--st-success)',
 };
 
-export function TodoList({ todos }: TodoListProps) {
+export function TodoList({ todos, onClear }: TodoListProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   if (!todos || todos.length === 0) {
@@ -73,6 +74,22 @@ export function TodoList({ todos }: TodoListProps) {
             {completedCount}/{todos.length}
           </span>
         </button>
+        {onClear && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClear();
+            }}
+            className="p-1.5 rounded transition-all duration-75 st-hoverable st-focus-ring"
+            title="Clear tasks"
+          >
+            <X
+              className="w-3 h-3"
+              style={{ color: colors.text.muted }}
+            />
+          </button>
+        )}
       </div>
 
       <div

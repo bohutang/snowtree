@@ -10,6 +10,7 @@ import { FileChangeList } from './FileChangeList';
 import type { WorkingTreeScope } from './types';
 import { CIStatusBadge, CIStatusDetails } from '../../../features/ci-status';
 import { TodoList } from '../../TodoList';
+import { useSessionStore } from '../../../stores/sessionStore';
 
 export const RightPanel: React.FC<RightPanelProps> = React.memo(
   ({
@@ -34,6 +35,12 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
     const [isChangesExpanded, setIsChangesExpanded] = useState(true);
     const [isPRExpanded, setIsPRExpanded] = useState(true);
     const [isCIExpanded, setIsCIExpanded] = useState(false);
+
+    const updateSessionTodos = useSessionStore(state => state.updateSessionTodos);
+
+    const handleClearTodos = useCallback(() => {
+      updateSessionTodos(session.id, []);
+    }, [session.id, updateSessionTodos]);
 
     const {
       commits,
@@ -684,7 +691,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
         </div>
 
         {/* 4. Tasks Section (at bottom) */}
-        <TodoList todos={todos} />
+        <TodoList todos={todos} onClear={handleClearTodos} />
       </div>
     );
   }
