@@ -75,7 +75,7 @@ export abstract class AbstractAIPanelManager {
     this.logger?.verbose(`[${this.getAgentName()}PanelManager] Discarding unconfirmed session ID for panel ${panelId}: ${pending.agentSessionId}`);
     this.pendingAgentSessionIds.delete(panelId);
 
-    // Clear from in-memory mapping
+    // Clear from in-memory mapping since it was never confirmed
     const mapping = this.panelMappings.get(panelId);
     if (mapping) {
       mapping.agentSessionId = undefined;
@@ -111,7 +111,8 @@ export abstract class AbstractAIPanelManager {
       // Confirm session ID on first assistant message (CLI has persisted successfully)
       if (data.type === 'json' && typeof data.data === 'object' && data.data !== null) {
         const jsonData = data.data as { type?: string };
-        if (jsonData.type === 'assistant') {
+        // Confirm on assistant message OR result message (both indicate successful CLI execution)
+        if (jsonData.type === 'assistant' || jsonData.type === 'result') {
           this.confirmAndPersistSessionId(panelId);
         }
       }

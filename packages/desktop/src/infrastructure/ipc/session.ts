@@ -330,8 +330,15 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
       }
 
       const manager = ensureClaudePanelManager();
-      // Register panel if not already registered
-      manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
+      // Only register if not already registered (to preserve agentSessionId in memory)
+      if (!manager.getPanelState(panelId)) {
+        manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
+        // Hydrate agentSessionId from database after registration
+        const agentSessionId = sessionManager.getPanelAgentSessionId(panelId);
+        if (agentSessionId) {
+          manager.setAgentSessionId(panelId, agentSessionId);
+        }
+      }
 
       await manager.answerQuestion(panelId, answers);
       return { success: true };
@@ -357,8 +364,15 @@ export function registerSessionHandlers(ipcMain: IpcMain, services: AppServices)
       }
 
       const manager = ensureCodexPanelManager();
-      // Register panel if not already registered
-      manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
+      // Only register if not already registered (to preserve agentSessionId in memory)
+      if (!manager.getPanelState(panelId)) {
+        manager.registerPanel(panelId, session.id, panel.state?.customState as AIPanelState | undefined, false);
+        // Hydrate agentSessionId from database after registration
+        const agentSessionId = sessionManager.getPanelAgentSessionId(panelId);
+        if (agentSessionId) {
+          manager.setAgentSessionId(panelId, agentSessionId);
+        }
+      }
 
       await manager.answerQuestion(panelId, answers);
       return { success: true };
