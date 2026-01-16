@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, Copy, Loader2, XCircle } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy, Loader2, XCircle, Terminal, Edit3, File, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -128,6 +128,23 @@ const formatSeconds = (durationMs: number): string => {
   const ms = Number.isFinite(durationMs) ? durationMs : 0;
   const seconds = Math.max(0, ms) / 1000;
   return `${seconds.toFixed(1)}s`;
+};
+
+const getCommandIcon = (kind: 'cli' | 'git' | 'worktree', command: string, meta?: Record<string, unknown>) => {
+  // Check for Edit tool (has oldString/newString in meta)
+  if (meta?.oldString !== undefined || meta?.newString !== undefined) {
+    return Edit3;
+  }
+  // Check for Write tool (has isNewFile in meta)
+  if (meta?.isNewFile === true) {
+    return File;
+  }
+  // Check for delete operation
+  if (meta?.isDelete === true || command.includes('rm ')) {
+    return Trash2;
+  }
+  // Default to terminal icon for CLI/git commands
+  return Terminal;
 };
 
 const getAgentModelLabelFromCommands = (commands: CommandInfo[]): string | null => {
@@ -604,6 +621,8 @@ const AgentResponse: React.FC<{
                 // Multiple file diffs (e.g., rm file1 file2)
                 const hasMultipleDiffs = Array.isArray(diffFiles) && diffFiles.length > 0;
 
+                const CommandIcon = getCommandIcon(c.kind, display, meta);
+
                 return (
                   <div key={key}>
                     <div className="command-item">
@@ -618,6 +637,7 @@ const AgentResponse: React.FC<{
                           <Check className="status-done" style={{ width: 14, height: 14 }} />
                         )}
                       </span>
+                      <CommandIcon className="command-type-icon" style={{ width: 13, height: 13, marginRight: 8, flexShrink: 0, opacity: 0.6 }} />
                       <span className="command-text">{display}</span>
                       <div className="command-actions">
                         <button
