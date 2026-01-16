@@ -9,10 +9,12 @@ import { CommitList } from './CommitList';
 import { FileChangeList } from './FileChangeList';
 import type { WorkingTreeScope } from './types';
 import { CIStatusBadge, CIStatusDetails } from '../../../features/ci-status';
+import { TodoList } from '../../TodoList';
 
 export const RightPanel: React.FC<RightPanelProps> = React.memo(
   ({
     session,
+    todos,
     onFileClick,
     onCommitUncommittedChanges,
     isCommitDisabled,
@@ -681,6 +683,8 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
           </div>
         </div>
 
+        {/* 4. Tasks Section (at bottom) */}
+        <TodoList todos={todos} />
       </div>
     );
   }
