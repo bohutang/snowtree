@@ -954,8 +954,34 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
 
       const cwd = session.worktreePath;
 
-      // Get remote URL to extract owner/repo
-      const remoteRes = await gitExecutor.run({
+      // Helper to extract owner/repo from a GitHub URL
+      const extractOwnerRepo = (url: string): string | null => {
+        const match = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+        return match ? match[1] : null;
+      };
+
+      // Try to get upstream remote first (for fork workflow), fallback to origin
+      let ownerRepo: string | null = null;
+      let originOwnerRepo: string | null = null;
+
+      // Try upstream first
+      const upstreamRes = await gitExecutor.run({
+        sessionId,
+        cwd,
+        argv: ['git', 'remote', 'get-url', 'upstream'],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 3_000,
+        meta: { source: 'ipc.git', operation: 'ci-status-remote-upstream' },
+      });
+
+      if (upstreamRes.exitCode === 0 && upstreamRes.stdout?.trim()) {
+        ownerRepo = extractOwnerRepo(upstreamRes.stdout.trim());
+      }
+
+      // Get origin (needed for branch prefix in fork workflow)
+      const originRes = await gitExecutor.run({
         sessionId,
         cwd,
         argv: ['git', 'remote', 'get-url', 'origin'],
@@ -963,20 +989,21 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         recordTimeline: false,
         throwOnError: false,
         timeoutMs: 3_000,
-        meta: { source: 'ipc.git', operation: 'ci-status-remote' },
+        meta: { source: 'ipc.git', operation: 'ci-status-remote-origin' },
       });
 
-      if (remoteRes.exitCode !== 0 || !remoteRes.stdout?.trim()) {
-        return { success: true, data: null };
+      if (originRes.exitCode === 0 && originRes.stdout?.trim()) {
+        originOwnerRepo = extractOwnerRepo(originRes.stdout.trim());
       }
 
-      const url = remoteRes.stdout.trim();
-      const match = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
-      if (!match) {
-        return { success: true, data: null };
+      // Fallback to origin if no upstream
+      if (!ownerRepo) {
+        ownerRepo = originOwnerRepo;
       }
 
-      const ownerRepo = match[1];
+      if (!ownerRepo) {
+        return { success: true, data: null };
+      }
 
       // Get current branch
       const branchRes = await gitExecutor.run({
@@ -995,6 +1022,14 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         return { success: true, data: null };
       }
 
+      // For fork workflow: when PR is on upstream, branch needs origin-owner prefix
+      // e.g., "bohutang:feature-branch" instead of just "feature-branch"
+      let branchRef = branch;
+      if (originOwnerRepo && ownerRepo !== originOwnerRepo) {
+        const originOwner = originOwnerRepo.split('/')[0];
+        branchRef = `${originOwner}:${branch}`;
+      }
+
       // Use gh pr checks to get CI status
       // gh pr checks --json returns: name, state (SUCCESS/FAILURE/PENDING/etc), startedAt, completedAt, link
       const checksRes = await gitExecutor.run({
@@ -1003,7 +1038,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         argv: [
           'gh', 'pr', 'checks',
           '--repo', ownerRepo,
-          branch,
+          branchRef,
           '--json', 'name,state,startedAt,completedAt,link',
         ],
         op: 'read',

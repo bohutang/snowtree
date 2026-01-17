@@ -1006,11 +1006,17 @@ describe('Git IPC Handlers - CI Status', () => {
     });
 
     it('should return null when remote URL cannot be obtained', async () => {
-      mockGitExecutor.run.mockResolvedValueOnce({
-        exitCode: 1,
-        stdout: '',
-        stderr: 'fatal: No such remote',
-      } as MockRunResult);
+      mockGitExecutor.run
+        .mockResolvedValueOnce({
+          exitCode: 1, // upstream not found
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 1, // origin not found
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult);
 
       const result = await mockIpcMain.invoke('sessions:get-ci-status', sessionId);
 
@@ -1018,11 +1024,17 @@ describe('Git IPC Handlers - CI Status', () => {
     });
 
     it('should return null for non-GitHub remotes', async () => {
-      mockGitExecutor.run.mockResolvedValueOnce({
-        exitCode: 0,
-        stdout: 'git@gitlab.com:owner/repo.git\n',
-        stderr: '',
-      } as MockRunResult);
+      mockGitExecutor.run
+        .mockResolvedValueOnce({
+          exitCode: 1, // no upstream
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: 'git@gitlab.com:owner/repo.git\n',
+          stderr: '',
+        } as MockRunResult);
 
       const result = await mockIpcMain.invoke('sessions:get-ci-status', sessionId);
 
@@ -1032,7 +1044,12 @@ describe('Git IPC Handlers - CI Status', () => {
     it('should return null when branch is empty', async () => {
       mockGitExecutor.run
         .mockResolvedValueOnce({
-          exitCode: 0,
+          exitCode: 1, // no upstream
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0, // origin
           stdout: 'git@github.com:owner/repo.git\n',
           stderr: '',
         } as MockRunResult)
@@ -1050,7 +1067,12 @@ describe('Git IPC Handlers - CI Status', () => {
     it('should return null when gh pr checks fails', async () => {
       mockGitExecutor.run
         .mockResolvedValueOnce({
-          exitCode: 0,
+          exitCode: 1, // no upstream
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0, // origin
           stdout: 'git@github.com:owner/repo.git\n',
           stderr: '',
         } as MockRunResult)
@@ -1078,7 +1100,12 @@ describe('Git IPC Handlers - CI Status', () => {
 
       mockGitExecutor.run
         .mockResolvedValueOnce({
-          exitCode: 0,
+          exitCode: 1, // no upstream
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0, // origin
           stdout: 'git@github.com:owner/repo.git\n',
           stderr: '',
         } as MockRunResult)
@@ -1117,7 +1144,12 @@ describe('Git IPC Handlers - CI Status', () => {
 
       mockGitExecutor.run
         .mockResolvedValueOnce({
-          exitCode: 0,
+          exitCode: 1, // no upstream
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0, // origin
           stdout: 'git@github.com:owner/repo.git\n',
           stderr: '',
         } as MockRunResult)
@@ -1147,7 +1179,12 @@ describe('Git IPC Handlers - CI Status', () => {
 
       mockGitExecutor.run
         .mockResolvedValueOnce({
-          exitCode: 0,
+          exitCode: 1, // no upstream
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0, // origin
           stdout: 'git@github.com:owner/repo.git\n',
           stderr: '',
         } as MockRunResult)
@@ -1178,7 +1215,12 @@ describe('Git IPC Handlers - CI Status', () => {
 
       mockGitExecutor.run
         .mockResolvedValueOnce({
-          exitCode: 0,
+          exitCode: 1, // no upstream
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0, // origin
           stdout: 'git@github.com:owner/repo.git\n',
           stderr: '',
         } as MockRunResult)
@@ -1209,7 +1251,12 @@ describe('Git IPC Handlers - CI Status', () => {
 
       mockGitExecutor.run
         .mockResolvedValueOnce({
-          exitCode: 0,
+          exitCode: 1, // no upstream
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0, // origin
           stdout: 'git@github.com:owner/repo.git\n',
           stderr: '',
         } as MockRunResult)
@@ -1239,7 +1286,12 @@ describe('Git IPC Handlers - CI Status', () => {
 
       mockGitExecutor.run
         .mockResolvedValueOnce({
-          exitCode: 0,
+          exitCode: 1, // no upstream
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0, // origin
           stdout: 'git@github.com:owner/repo.git\n',
           stderr: '',
         } as MockRunResult)
@@ -1264,7 +1316,12 @@ describe('Git IPC Handlers - CI Status', () => {
     it('should handle empty checks array', async () => {
       mockGitExecutor.run
         .mockResolvedValueOnce({
-          exitCode: 0,
+          exitCode: 1, // no upstream
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0, // origin
           stdout: 'git@github.com:owner/repo.git\n',
           stderr: '',
         } as MockRunResult)
@@ -1287,7 +1344,12 @@ describe('Git IPC Handlers - CI Status', () => {
     it('should handle malformed JSON gracefully', async () => {
       mockGitExecutor.run
         .mockResolvedValueOnce({
-          exitCode: 0,
+          exitCode: 1, // no upstream
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0, // origin
           stdout: 'git@github.com:owner/repo.git\n',
           stderr: '',
         } as MockRunResult)
@@ -1316,7 +1378,12 @@ describe('Git IPC Handlers - CI Status', () => {
 
       mockGitExecutor.run
         .mockResolvedValueOnce({
-          exitCode: 0,
+          exitCode: 1, // no upstream
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0, // origin
           stdout: 'git@github.com:owner/repo.git\n',
           stderr: '',
         } as MockRunResult)
@@ -1344,7 +1411,12 @@ describe('Git IPC Handlers - CI Status', () => {
 
       mockGitExecutor.run
         .mockResolvedValueOnce({
-          exitCode: 0,
+          exitCode: 1, // no upstream
+          stdout: '',
+          stderr: 'fatal: No such remote',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0, // origin
           stdout: 'https://github.com/owner/repo.git\n',
           stderr: '',
         } as MockRunResult)
@@ -1364,8 +1436,8 @@ describe('Git IPC Handlers - CI Status', () => {
       expect(result.success).toBe(true);
       expect(result.data.rollupState).toBe('success');
 
-      // Verify gh pr checks was called with correct --repo
-      const ghChecksCall = mockGitExecutor.run.mock.calls[2];
+      // Verify gh pr checks was called with correct --repo (call index changed due to upstream check)
+      const ghChecksCall = mockGitExecutor.run.mock.calls[3];
       expect(ghChecksCall[0].argv).toContain('--repo');
       expect(ghChecksCall[0].argv).toContain('owner/repo');
     });

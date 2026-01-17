@@ -316,6 +316,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                             setIsCIExpanded(!isCIExpanded);
                           }}
                           expanded={isCIExpanded}
+                          as="span"
                         />
                       )}
                     </div>

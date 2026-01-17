@@ -6,6 +6,8 @@ interface CIStatusBadgeProps {
   status: CIStatus;
   onClick?: (e: React.MouseEvent) => void;
   expanded?: boolean;
+  /** Render as span instead of button (use when nested inside another button) */
+  as?: 'button' | 'span';
 }
 
 const stateConfig: Record<
@@ -48,6 +50,7 @@ export const CIStatusBadge: React.FC<CIStatusBadgeProps> = ({
   status,
   onClick,
   expanded,
+  as = 'button',
 }) => {
   const config = stateConfig[status.rollupState];
   const Icon = config.icon;
@@ -58,17 +61,16 @@ export const CIStatusBadge: React.FC<CIStatusBadgeProps> = ({
     status.rollupState === 'failure' ||
     (status.totalCount > 1 && status.rollupState !== 'success');
 
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring"
-      style={{
-        backgroundColor: config.bg,
-        color: config.color,
-      }}
-      title={`CI: ${status.successCount}/${status.totalCount} checks passed`}
-    >
+  const className = "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all duration-75 st-hoverable st-focus-ring";
+  const style = {
+    backgroundColor: config.bg,
+    color: config.color,
+    cursor: onClick ? 'pointer' : undefined,
+  };
+  const title = `CI: ${status.successCount}/${status.totalCount} checks passed`;
+
+  const content = (
+    <>
       <Icon
         className={`w-3 h-3 ${isAnimated ? 'animate-spin' : ''}`}
         strokeWidth={2.5}
@@ -89,6 +91,39 @@ export const CIStatusBadge: React.FC<CIStatusBadgeProps> = ({
           ▼
         </span>
       )}
+    </>
+  );
+
+  if (as === 'span') {
+    return (
+      <span
+        onClick={onClick}
+        className={className}
+        style={style}
+        title={title}
+        role={onClick ? 'button' : undefined}
+        tabIndex={onClick ? 0 : undefined}
+        onKeyDown={onClick ? (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick(e as unknown as React.MouseEvent);
+          }
+        } : undefined}
+      >
+        {content}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={className}
+      style={style}
+      title={title}
+    >
+      {content}
     </button>
   );
 };
