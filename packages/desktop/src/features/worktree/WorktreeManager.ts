@@ -12,6 +12,31 @@ type WorktreeListEntry = {
   prunable: boolean;
 };
 
+type RemoteOwnerRepo = {
+  owner: string;
+  repo: string;
+};
+
+function parseGitHubOwnerRepo(remoteUrl: string): RemoteOwnerRepo | null {
+  const trimmed = remoteUrl.trim();
+  const sshMatch = trimmed.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/);
+  if (sshMatch) {
+    return { owner: sshMatch[1], repo: sshMatch[2] };
+  }
+  const httpsMatch = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/(.+?)(?:\.git)?$/);
+  if (httpsMatch) {
+    return { owner: httpsMatch[1], repo: httpsMatch[2] };
+  }
+  return null;
+}
+
+function isForkOfUpstream(originUrl: string, upstreamUrl: string): boolean {
+  const origin = parseGitHubOwnerRepo(originUrl);
+  const upstream = parseGitHubOwnerRepo(upstreamUrl);
+  if (!origin || !upstream) return false;
+  return origin.repo === upstream.repo && origin.owner !== upstream.owner;
+}
+
 export class WorktreeManager {
   private projectsCache: Map<string, { baseDir: string }> = new Map();
 
@@ -139,34 +164,57 @@ export class WorktreeManager {
         });
       }
 
-      // Always base new workspaces on the latest remote default branch when origin exists.
-      let originExists = false;
-      try {
-        await this.runGit({ cwd: projectPath, argv: ['git', 'remote', 'get-url', 'origin'], op: 'read' });
-        originExists = true;
-      } catch {
-        originExists = false;
+      const getRemoteUrl = async (remoteName: string): Promise<string | null> => {
+        try {
+          const { stdout } = await this.runGit({
+            cwd: projectPath,
+            argv: ['git', 'remote', 'get-url', remoteName],
+            op: 'read',
+          });
+          const trimmed = stdout.trim();
+          return trimmed ? trimmed : null;
+        } catch {
+          return null;
+        }
+      };
+
+      const originUrl = await getRemoteUrl('origin');
+      const upstreamUrl = await getRemoteUrl('upstream');
+      const originExists = Boolean(originUrl);
+      const upstreamExists = Boolean(upstreamUrl);
+
+      let baseRemote: 'origin' | 'upstream' | null = null;
+      if (originExists && upstreamExists && originUrl && upstreamUrl && isForkOfUpstream(originUrl, upstreamUrl)) {
+        baseRemote = 'upstream';
+      } else if (originExists) {
+        baseRemote = 'origin';
+      } else if (upstreamExists) {
+        baseRemote = 'upstream';
       }
 
-      if (originExists) {
+      if (baseRemote) {
         await this.runGit({
           sessionId,
           cwd: projectPath,
-          argv: ['git', 'fetch', 'origin'],
+          argv: ['git', 'fetch', baseRemote],
           op: 'write',
           meta: { source: 'worktree', worktreeName: name, phase: 'fetch' },
         });
       }
 
-      // Determine base branch (prefer origin/HEAD, then origin/main|master, then local HEAD).
+      // Determine base branch (prefer <remote>/HEAD, then <remote>/main|master, then local HEAD).
       let mainBranchName = baseBranch;
       if (!mainBranchName) {
-        if (originExists) {
+        if (baseRemote) {
           try {
             const remoteHead = (
-              await this.runGit({ cwd: projectPath, argv: ['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'], op: 'read' })
+              await this.runGit({
+                cwd: projectPath,
+                argv: ['git', 'symbolic-ref', `refs/remotes/${baseRemote}/HEAD`],
+                op: 'read',
+              })
             ).stdout.trim();
-            mainBranchName = remoteHead.replace('refs/remotes/origin/', '').trim();
+            mainBranchName = remoteHead.replace(`refs/remotes/${baseRemote}/`, '').trim();
           } catch {
             // ignore
           }
@@ -175,7 +223,7 @@ export class WorktreeManager {
               try {
                 await this.runGit({
                   cwd: projectPath,
-                  argv: ['git', 'show-ref', '--verify', '--quiet', `refs/remotes/origin/${candidate}`],
+                  argv: ['git', 'show-ref', '--verify', '--quiet', `refs/remotes/${baseRemote}/${candidate}`],
                   op: 'read',
                 });
                 mainBranchName = candidate;
@@ -198,9 +246,9 @@ export class WorktreeManager {
       }
 
       const actualBaseBranch = mainBranchName;
-      let baseRef = originExists ? `origin/${mainBranchName}` : mainBranchName;
+      let baseRef = baseRemote ? `${baseRemote}/${mainBranchName}` : mainBranchName;
 
-      if (originExists) {
+      if (baseRemote) {
         await this.runGit({
           cwd: projectPath,
           argv: ['git', 'rev-parse', '--verify', `${baseRef}^{commit}`],

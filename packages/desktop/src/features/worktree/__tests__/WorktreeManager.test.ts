@@ -155,6 +155,36 @@ describe('WorktreeManager', () => {
         })
       );
     });
+
+    it('should prefer upstream when origin is a fork of upstream', async () => {
+      const ok = (cmd: string, stdout = '') =>
+        Promise.resolve({
+          commandDisplay: cmd,
+          commandCopy: cmd,
+          stdout,
+          stderr: '',
+          exitCode: 0,
+          durationMs: 0,
+          operationId: 'test-op-id',
+        });
+
+      (mockGitExecutor.run as any).mockImplementation(
+        createWorktreeMockImplementation({
+          'remote get-url origin': (cmd) => ok(cmd, 'git@github.com:forkowner/snowtree.git'),
+          'remote get-url upstream': (cmd) => ok(cmd, 'git@github.com:datafuselabs/snowtree.git'),
+          'symbolic-ref refs/remotes/upstream/HEAD': (cmd) => ok(cmd, 'refs/remotes/upstream/main'),
+          'rev-parse upstream/': (cmd) => ok(cmd, 'abc123def456'),
+        })
+      );
+
+      await worktreeManager.createWorktree('/tmp/project', 'feature-1', 'Test');
+
+      expect(mockGitExecutor.run).toHaveBeenCalledWith(
+        expect.objectContaining({
+          argv: ['git', 'fetch', 'upstream'],
+        })
+      );
+    });
   });
 
   describe('removeWorktreePath', () => {

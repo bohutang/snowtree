@@ -19,6 +19,7 @@ export interface Session {
   worktreePath?: string;
   projectId?: number;
   folderId?: string;
+  baseCommit?: string;
   baseBranch?: string;
   archived?: boolean;
   displayOrder?: number;
@@ -27,4 +28,3 @@ export interface Session {
   gitStatus?: GitStatus;
   workspaceStage?: import('./workspace').WorkspaceStage;
 }
-

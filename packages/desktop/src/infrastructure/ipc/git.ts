@@ -43,6 +43,26 @@ function parseGitRemoteToOwnerRepo(remoteUrl: string): string | null {
   return null;
 }
 
+type RemoteOwnerRepo = {
+  owner: string;
+  repo: string;
+};
+
+function parseGitRemoteToOwnerRepoParts(remoteUrl: string): RemoteOwnerRepo | null {
+  const ownerRepo = parseGitRemoteToOwnerRepo(remoteUrl);
+  if (!ownerRepo) return null;
+  const [owner, repo] = ownerRepo.split('/');
+  if (!owner || !repo) return null;
+  return { owner, repo };
+}
+
+function isForkOfUpstream(originUrl: string, upstreamUrl: string): boolean {
+  const origin = parseGitRemoteToOwnerRepoParts(originUrl);
+  const upstream = parseGitRemoteToOwnerRepoParts(upstreamUrl);
+  if (!origin || !upstream) return false;
+  return origin.repo === upstream.repo && origin.owner !== upstream.owner;
+}
+
 /**
  * Parse git remote -v output and extract owner/repo for the origin remote.
  */
@@ -107,21 +127,74 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         });
       }
 
-      // Append the base branch HEAD commit (single commit) for context.
+      // Append the workspace base commit (or base branch HEAD when unavailable) for context.
       // Keep this lightweight and avoid spamming Conversations (read operations are not recorded by default).
       const resolveBaseRef = async (): Promise<string | null> => {
-        try {
-          await gitExecutor.run({
-            cwd: session.worktreePath!,
-            argv: ['git', 'show-ref', '--verify', '--quiet', `refs/remotes/origin/${baseBranch}`],
-            op: 'read',
-            recordTimeline: false,
-            meta: { source: 'ipc.git', operation: 'base-ref-probe', ref: `refs/remotes/origin/${baseBranch}` },
-          });
-          return `origin/${baseBranch}`;
-        } catch {
-          // ignore
+        if (baseCommit) {
+          try {
+            await gitExecutor.run({
+              cwd: session.worktreePath!,
+              argv: ['git', 'rev-parse', '--verify', `${baseCommit}^{commit}`],
+              op: 'read',
+              recordTimeline: false,
+              meta: { source: 'ipc.git', operation: 'base-ref-probe', ref: baseCommit },
+            });
+            return baseCommit;
+          } catch {
+            // Fall through to remote/local probes
+          }
         }
+
+        const getRemoteUrl = async (remoteName: string): Promise<string | null> => {
+          try {
+            const { stdout } = await gitExecutor.run({
+              cwd: session.worktreePath!,
+              argv: ['git', 'remote', 'get-url', remoteName],
+              op: 'read',
+              recordTimeline: false,
+              meta: { source: 'ipc.git', operation: 'get-remote-url', remote: remoteName },
+            });
+            const trimmed = stdout.trim();
+            return trimmed ? trimmed : null;
+          } catch {
+            return null;
+          }
+        };
+
+        const originUrl = await getRemoteUrl('origin');
+        const upstreamUrl = await getRemoteUrl('upstream');
+        const originExists = Boolean(originUrl);
+        const upstreamExists = Boolean(upstreamUrl);
+
+        let preferredRemote: 'origin' | 'upstream' | null = null;
+        if (originUrl && upstreamUrl && isForkOfUpstream(originUrl, upstreamUrl)) {
+          preferredRemote = 'upstream';
+        } else if (originUrl) {
+          preferredRemote = 'origin';
+        } else if (upstreamUrl) {
+          preferredRemote = 'upstream';
+        }
+
+        const remoteCandidates: Array<'origin' | 'upstream'> = [];
+        if (preferredRemote) remoteCandidates.push(preferredRemote);
+        if (preferredRemote !== 'origin' && originExists) remoteCandidates.push('origin');
+        if (preferredRemote !== 'upstream' && upstreamExists) remoteCandidates.push('upstream');
+
+        for (const remoteName of remoteCandidates) {
+          try {
+            await gitExecutor.run({
+              cwd: session.worktreePath!,
+              argv: ['git', 'show-ref', '--verify', '--quiet', `refs/remotes/${remoteName}/${baseBranch}`],
+              op: 'read',
+              recordTimeline: false,
+              meta: { source: 'ipc.git', operation: 'base-ref-probe', ref: `refs/remotes/${remoteName}/${baseBranch}` },
+            });
+            return `${remoteName}/${baseBranch}`;
+          } catch {
+            // Try next candidate
+          }
+        }
+
         try {
           await gitExecutor.run({
             cwd: session.worktreePath!,
@@ -711,28 +784,50 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       const commitHash = typeof options?.commitHash === 'string' ? options.commitHash.trim() : '';
       if (!commitHash) return { success: false, error: 'Commit hash is required' };
 
-      // Get the remote origin URL
-      const result = await gitExecutor.run({
-        sessionId,
-        cwd: session.worktreePath,
-        argv: ['git', 'config', '--get', 'remote.origin.url'],
-        op: 'read',
-        recordTimeline: false,
-        meta: { source: 'ipc.git', operation: 'get-remote-url' },
-        timeoutMs: 5_000,
-      });
+      const getRemoteUrl = async (remoteName: string): Promise<string | null> => {
+        try {
+          const result = await gitExecutor.run({
+            sessionId,
+            cwd: session.worktreePath,
+            argv: ['git', 'remote', 'get-url', remoteName],
+            op: 'read',
+            recordTimeline: false,
+            meta: { source: 'ipc.git', operation: 'get-remote-url', remote: remoteName },
+            timeoutMs: 5_000,
+          });
+          const trimmed = result.stdout.trim();
+          return trimmed ? trimmed : null;
+        } catch {
+          return null;
+        }
+      };
 
-      if (result.exitCode !== 0 || !result.stdout.trim()) {
-        return { success: false, error: 'No remote origin configured' };
+      const originUrl = await getRemoteUrl('origin');
+      const upstreamUrl = await getRemoteUrl('upstream');
+
+      if (!originUrl && !upstreamUrl) {
+        return { success: false, error: 'No remote configured' };
       }
 
-      const gitHubBaseUrl = parseGitRemoteToGitHubUrl(result.stdout);
-      if (!gitHubBaseUrl) {
-        return { success: false, error: 'Remote is not a GitHub repository' };
+      const remoteCandidates: Array<'origin' | 'upstream'> = [];
+      if (originUrl && upstreamUrl && isForkOfUpstream(originUrl, upstreamUrl)) {
+        remoteCandidates.push('upstream', 'origin');
+      } else {
+        if (originUrl) remoteCandidates.push('origin');
+        if (upstreamUrl) remoteCandidates.push('upstream');
       }
 
-      const url = `${gitHubBaseUrl}/commit/${commitHash}`;
-      return { success: true, data: { url } };
+      for (const remoteName of remoteCandidates) {
+        const remoteUrl = remoteName === 'origin' ? originUrl : upstreamUrl;
+        if (!remoteUrl) continue;
+        const gitHubBaseUrl = parseGitRemoteToGitHubUrl(remoteUrl);
+        if (gitHubBaseUrl) {
+          const url = `${gitHubBaseUrl}/commit/${commitHash}`;
+          return { success: true, data: { url } };
+        }
+      }
+
+      return { success: false, error: 'Remote is not a GitHub repository' };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to get commit GitHub URL' };
     }

@@ -57,6 +57,19 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = React.memo(({
     return getRepositoryName(session.worktreePath) || session.name;
   }, [session.worktreePath, session.name]);
 
+  const applyBaseCommitSuffix = (name: string, baseCommit?: string): string => {
+    const trimmed = (baseCommit || '').trim();
+    if (!trimmed) return name;
+    const shortHash = trimmed.slice(0, 7);
+    if (!shortHash) return name;
+    const lastDash = name.lastIndexOf('-');
+    if (lastDash <= 0 || lastDash === name.length - 1) return name;
+    return `${name.slice(0, lastDash + 1)}${shortHash}`;
+  };
+
+  const displayBranchName = applyBaseCommitSuffix(branchName || 'main', session.baseCommit);
+  const displayBranch = remoteName ? `${remoteName}/${displayBranchName}` : displayBranchName;
+
   const [copied, setCopied] = useState(false);
 
   const handleCopyPath = async () => {
@@ -97,7 +110,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = React.memo(({
         >
           <GitBranch className="w-3 h-3" />
           <span className="truncate max-w-[180px]" data-testid="branch-name">
-            {remoteName ? `${remoteName}/${branchName || 'main'}` : branchName || 'main'}
+            {displayBranch}
           </span>
         </div>
       </div>
