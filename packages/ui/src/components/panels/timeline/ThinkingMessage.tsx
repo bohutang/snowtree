@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Brain, ChevronDown, ChevronRight, Circle, Square } from 'lucide-react';
 import './ThinkingMessage.css';
 
 export interface ThinkingMessageProps {
@@ -46,16 +47,20 @@ export function ThinkingMessage({ content, timestamp, isStreaming }: ThinkingMes
           }
         }}
       >
-        <span className="expand-icon">{expanded ? '▼' : '▶'}</span>
-        <span className="thinking-icon" title="AI is thinking">🧠</span>
+        {expanded ? (
+          <ChevronDown className="expand-icon" size={12} />
+        ) : (
+          <ChevronRight className="expand-icon" size={12} />
+        )}
+        <Brain className="thinking-icon" title="AI is thinking" size={14} />
         <span className="thinking-label">Thinking</span>
-        {isStreaming && <span className="streaming-indicator" title="Streaming...">●</span>}
+        {isStreaming && <Circle className="streaming-indicator" title="Streaming..." size={8} />}
         <span className="thinking-timestamp">{formatTime(timestamp)}</span>
       </div>
       {expanded && (
         <div className="thinking-content">
           {content}
-          {isStreaming && <span className="cursor-blink">▊</span>}
+          {isStreaming && <Square className="cursor-blink" size={7} />}
         </div>
       )}
     </div>
