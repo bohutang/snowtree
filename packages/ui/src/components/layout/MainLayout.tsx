@@ -203,6 +203,7 @@ export const MainLayout: React.FC = React.memo(() => {
       '- Use a clear, short commit message',
       '- Do NOT mention the CLI/AI tool or add any generated-by/co-author signatures',
       '- Do NOT stage additional files; only commit what is already staged',
+      '- Use `git diff --cached --stat` as the authoritative check for staged content; if empty, nothing is staged',
       '- If nothing is staged: stop and ask me to stage hunks/files first',
       '- If a command fails: paste the exact error and ask me what to do next',
     ].join('\n');

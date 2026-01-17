@@ -52,9 +52,15 @@ export function ThinkingMessage({ content, timestamp, isStreaming }: ThinkingMes
         ) : (
           <ChevronRight className="expand-icon" size={12} />
         )}
-        <Brain className="thinking-icon" title="AI is thinking" size={14} />
+        <span title="AI is thinking">
+          <Brain className="thinking-icon" size={14} aria-label="AI is thinking" />
+        </span>
         <span className="thinking-label">Thinking</span>
-        {isStreaming && <Circle className="streaming-indicator" title="Streaming..." size={8} />}
+        {isStreaming && (
+          <span title="Streaming...">
+            <Circle className="streaming-indicator" size={8} aria-label="Streaming" />
+          </span>
+        )}
         <span className="thinking-timestamp">{formatTime(timestamp)}</span>
       </div>
       {expanded && (
