@@ -1,63 +1,61 @@
 # Snowtree
 
-Snowtree is Databend Labs' review-driven workflow for keeping AI coding sessions safe, auditable, and merge-ready.
+**Review-Driven Safe AI Coding**
 
-AI generates code. You must review. You can't review everything or roll back safely.  
-Snowtree fixes this with **worktree isolation**, **incremental review**, and **staging snapshots**.
+Snowtree is a workflow manager for AI coding sessions. It keeps your main codebase safe by running AI agents in isolated **git worktrees**, allowing you to review, edit, and stage changes incrementally before merging.
 
 ![Snowtree Demo](assets/snowtree-show.gif)
 
-## Highlights
+## Why Snowtree?
 
-- **Worktree isolation** – every AI session runs in its own Git worktree, so you can spike multiple ideas in parallel with zero merge headaches.
-- **Incremental review loop** – review, stage, and lock in vetted changes after each AI round; subsequent rounds only diff against staged code.
-- **Native CLI agents** – run Claude Code or Codex directly without wrappers, meaning no extra queues or limits.
-- **Stage-as-snapshot** – staged files become the canonical baseline. When you're ready, merge them back and ship the PR.
+AI coding agents are powerful but can be unpredictable. Snowtree solves the "undo" problem:
 
-## What Snowtree Automates
+*   **Isolation**: Every AI session runs in its own detached environment. Your main working directory remains untouched until you're ready.
+*   **Incremental Review**: Review code after every AI prompt. "Stage" the changes you like to create a new baseline for the next prompt.
+*   **Safety**: Revert bad generations instantly without losing your progress or messing up your git history.
 
-- **AI agent writes code** – edits live in the isolated worktree while you review.
-- **AI agent commits** – generates messages and commits the staged snapshot.
-- **AI agent syncs PRs** – opens or refreshes pull requests on demand.
-- **AI agent updates from `main`** – rebases/merges the latest upstream changes.
-- **AI agent resolves conflicts** – fixes merge conflicts without touching staged files.
+## Features
 
-## Prerequisites
+*   **Worktree Isolation**: Spike multiple features or refactors in parallel with zero context switching costs.
+*   **Native Agent Support**: Use `claude-code`, `codex`, or other CLI agents directly. No wrappers, no proxies.
+*   **Smart Staging**: Staged files act as the "truth" for the AI's next step, preventing it from undoing your fixes.
+*   **Auto-Sync**: Automatically handles upstream updates, PR creation, and conflict resolution.
 
-Install at least one AI coding agent:
+## Installation
 
-| Agent | Install |
-|-------|---------|
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `npm install -g @anthropic-ai/claude-code` |
-| [Codex](https://github.com/openai/codex) | `npm install -g @openai/codex` |
+### Prerequisites
 
-## Install
+Snowtree orchestrates CLI-based AI agents. You must have at least one installed:
 
-**One-line installer (macOS/Linux):**
+*   **Claude Code**: `npm install -g @anthropic-ai/claude-code`
+*   **Codex**: `npm install -g @openai/codex`
+
+### Install Snowtree
+
+**macOS / Linux (One-line)**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/databendlabs/snowtree/main/install.sh | sh
 ```
 
-**Manual download:** [GitHub Releases](https://github.com/databendlabs/snowtree/releases)
+**Manual Download**
 
-| Platform | Format |
-|----------|--------|
-| macOS | `.dmg` (arm64, x64) |
-| Linux | `.deb`, `.AppImage` (x86_64) |
+Pre-built binaries for macOS (`.dmg`) and Linux (`.deb`, `.AppImage`) are available on [GitHub Releases](https://github.com/databendlabs/snowtree/releases).
 
 ## Development
 
+To build Snowtree from source, you need `node >= 22.14` and `pnpm`.
+
 ```bash
 make install   # Install dependencies
-make run       # Start development server
-make check     # Typecheck, lint, and test
-make build     # Build packages
+make run       # Start the development app
+make check     # Run typechecks, linting, and tests
+make build     # Build all packages
 ```
 
 ## Learn More
 
-[Snowtree: Review-Driven Safe AI Coding](https://www.bohutang.me/2026/01/10/snowtree-review-driven-safe-ai-coding/)
+*   [Blog: Snowtree - Review-Driven Safe AI Coding](https://www.bohutang.me/2026/01/10/snowtree-review-driven-safe-ai-coding/)
 
 ## License
 
