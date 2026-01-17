@@ -52,6 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/databendlabs/snowtree/main/install.
 make install   # Install dependencies
 make run       # Start development server
 make check     # Typecheck, lint, and test
+make test      # Unit tests (UI + desktop)
 make build     # Build packages
 ```
 
