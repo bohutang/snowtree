@@ -30,6 +30,16 @@ type Worktree = {
   filesChanged: number;
 };
 
+const applyBaseCommitSuffix = (name: string, baseCommit?: string): string => {
+  const trimmed = (baseCommit || '').trim();
+  if (!trimmed) return name;
+  const shortHash = trimmed.slice(0, 7);
+  if (!shortHash) return name;
+  const lastDash = name.lastIndexOf('-');
+  if (lastDash <= 0 || lastDash === name.length - 1) return name;
+  return `${name.slice(0, lastDash + 1)}${shortHash}`;
+};
+
 export function Sidebar() {
   const { showError } = useErrorStore();
   const { sessions, activeSessionId, setActiveSession } = useSessionStore();
@@ -645,7 +655,11 @@ export function Sidebar() {
                                 (activeWorktreePath && activeWorktreePath === worktree.path) ||
                                 (pendingSelectedWorktreePath && pendingSelectedWorktreePath === worktree.path)
                               );
-                              const displayName = getWorktreeDisplayName(worktree);
+                              const session = sessionsByWorktreePath.get(worktree.path);
+                              const displayName = applyBaseCommitSuffix(
+                                getWorktreeDisplayName(worktree),
+                                session?.baseCommit
+                              );
                               const isEditing = editingWorktreePath === worktree.path;
                               const isRunning = runningWorktreePaths.has(worktree.path);
                               return (
@@ -729,12 +743,9 @@ export function Sidebar() {
                                                   style={{ color: 'var(--st-accent)' }}
                                                 />
                                               )}
-                                              {(() => {
-                                                const session = sessionsByWorktreePath.get(worktree.path);
-                                                return session?.workspaceStage ? (
-                                                  <StageBadge stage={session.workspaceStage} />
-                                                ) : null;
-                                              })()}
+                                              {session?.workspaceStage ? (
+                                                <StageBadge stage={session.workspaceStage} />
+                                              ) : null}
                                             </div>
                                             {/* Row 2: Time (left) + Diff stats (right) */}
                                             <div className="flex items-center justify-between mt-0.5">

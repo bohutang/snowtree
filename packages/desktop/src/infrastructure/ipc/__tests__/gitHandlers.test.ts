@@ -53,7 +53,12 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
       sessionManager: mockSessionManager,
       gitStagingManager: { stageHunk: vi.fn(), restoreHunk: vi.fn() },
       gitStatusManager: { refreshSessionGitStatus: vi.fn() },
-      gitDiffManager: { getDiff: vi.fn() },
+      gitDiffManager: {
+        getDiff: vi.fn(),
+        getCommitHistory: vi.fn(),
+        hasChanges: vi.fn(),
+        getWorkingDiffStatsQuick: vi.fn(),
+      },
       worktreeManager: {},
       configManager: {},
     } as unknown as AppServices;
@@ -423,6 +428,72 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
   });
 });
 
+describe('Git IPC Handlers - Commit URL', () => {
+  let mockIpcMain: MockIpcMain;
+  let mockGitExecutor: { run: ReturnType<typeof vi.fn> };
+  let mockSessionManager: { getSession: ReturnType<typeof vi.fn> };
+  let mockServices: AppServices;
+
+  beforeEach(() => {
+    mockIpcMain = new MockIpcMain();
+
+    mockGitExecutor = {
+      run: vi.fn(),
+    };
+
+    mockSessionManager = {
+      getSession: vi.fn(),
+    };
+
+    mockServices = {
+      gitExecutor: mockGitExecutor,
+      sessionManager: mockSessionManager,
+      gitStagingManager: { stageHunk: vi.fn(), restoreHunk: vi.fn() },
+      gitStatusManager: { refreshSessionGitStatus: vi.fn() },
+      gitDiffManager: {
+        getDiff: vi.fn(),
+        getCommitHistory: vi.fn(),
+        hasChanges: vi.fn(),
+        getWorkingDiffStatsQuick: vi.fn(),
+      },
+      worktreeManager: {},
+      configManager: {},
+    } as unknown as AppServices;
+
+    registerGitHandlers(mockIpcMain as unknown as IpcMain, mockServices);
+  });
+
+  describe('sessions:get-commit-github-url', () => {
+    const sessionId = 'test-session-123';
+    const worktreePath = '/path/to/worktree';
+
+    beforeEach(() => {
+      mockSessionManager.getSession.mockReturnValue({ worktreePath });
+    });
+
+    it('should prefer upstream when origin is a fork', async () => {
+      mockGitExecutor.run
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: 'git@github.com:forkowner/snowtree.git\n',
+          stderr: '',
+        } as MockRunResult)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: 'git@github.com:datafuselabs/snowtree.git\n',
+          stderr: '',
+        } as MockRunResult);
+
+      const result = await mockIpcMain.invoke('sessions:get-commit-github-url', sessionId, { commitHash: 'abc123' });
+
+      expect(result).toEqual({
+        success: true,
+        data: { url: 'https://github.com/datafuselabs/snowtree/commit/abc123' },
+      });
+    });
+  });
+});
+
 describe('Git IPC Handlers - Branch Sync Status', () => {
   let mockIpcMain: MockIpcMain;
   let mockGitExecutor: { run: ReturnType<typeof vi.fn> };
@@ -445,12 +516,133 @@ describe('Git IPC Handlers - Branch Sync Status', () => {
       sessionManager: mockSessionManager,
       gitStagingManager: { stageHunk: vi.fn(), restoreHunk: vi.fn() },
       gitStatusManager: { refreshSessionGitStatus: vi.fn() },
-      gitDiffManager: { getDiff: vi.fn() },
+      gitDiffManager: {
+        getDiff: vi.fn(),
+        getCommitHistory: vi.fn(),
+        hasChanges: vi.fn(),
+        getWorkingDiffStatsQuick: vi.fn(),
+      },
       worktreeManager: {},
       configManager: {},
     } as unknown as AppServices;
 
     registerGitHandlers(mockIpcMain as unknown as IpcMain, mockServices);
+  });
+
+  describe('sessions:get-executions', () => {
+    const sessionId = 'test-session-123';
+    const worktreePath = '/path/to/worktree';
+
+    beforeEach(() => {
+      mockSessionManager.getSession.mockReturnValue({ worktreePath, baseBranch: 'main' });
+      mockServices.gitDiffManager.getCommitHistory.mockResolvedValue([]);
+      mockServices.gitDiffManager.hasChanges.mockResolvedValue(false);
+    });
+
+    it('should use baseCommit when available', async () => {
+      const baseCommit = 'abc123def456';
+      const delimiter = '\x1f';
+      const logLine = [
+        baseCommit,
+        'def789abc000',
+        'Base commit',
+        '2025-01-01T00:00:00Z',
+        'Base Author',
+      ].join(delimiter);
+
+      mockSessionManager.getSession.mockReturnValue({ worktreePath, baseBranch: 'main', baseCommit });
+
+      mockGitExecutor.run.mockImplementation((opts: { argv: string[] }) => {
+        const cmd = opts.argv.join(' ');
+        if (cmd.includes('rev-parse --verify') && cmd.includes(baseCommit)) {
+          return Promise.resolve({
+            exitCode: 0,
+            stdout: '',
+            stderr: '',
+          } as MockRunResult);
+        }
+        if (cmd.includes('log -1')) {
+          return Promise.resolve({
+            exitCode: 0,
+            stdout: `${logLine}\n`,
+            stderr: '',
+          } as MockRunResult);
+        }
+        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' } as MockRunResult);
+      });
+
+      const result = await mockIpcMain.invoke('sessions:get-executions', sessionId);
+
+      expect(result.success).toBe(true);
+
+      const remoteGetUrlCalled = mockGitExecutor.run.mock.calls.some((call) =>
+        call[0].argv.join(' ').includes('remote get-url')
+      );
+      expect(remoteGetUrlCalled).toBe(false);
+
+      const logUsesBaseCommit = mockGitExecutor.run.mock.calls.some((call) =>
+        call[0].argv.includes(baseCommit)
+      );
+      expect(logUsesBaseCommit).toBe(true);
+    });
+
+    it('should prefer upstream base ref when origin is a fork', async () => {
+      const delimiter = '\x1f';
+      const logLine = [
+        'abc123def456',
+        'def789abc000',
+        'Merge upstream',
+        '2025-01-01T00:00:00Z',
+        'Upstream Author',
+      ].join(delimiter);
+
+      mockGitExecutor.run.mockImplementation((opts: { argv: string[] }) => {
+        const cmd = opts.argv.join(' ');
+        if (cmd.includes('remote get-url origin')) {
+          return Promise.resolve({
+            exitCode: 0,
+            stdout: 'git@github.com:forkowner/snowtree.git\n',
+            stderr: '',
+          } as MockRunResult);
+        }
+        if (cmd.includes('remote get-url upstream')) {
+          return Promise.resolve({
+            exitCode: 0,
+            stdout: 'git@github.com:datafuselabs/snowtree.git\n',
+            stderr: '',
+          } as MockRunResult);
+        }
+        if (cmd.includes('show-ref --verify --quiet refs/remotes/upstream/main')) {
+          return Promise.resolve({
+            exitCode: 0,
+            stdout: '',
+            stderr: '',
+          } as MockRunResult);
+        }
+        if (cmd.includes('log -1')) {
+          return Promise.resolve({
+            exitCode: 0,
+            stdout: `${logLine}\n`,
+            stderr: '',
+          } as MockRunResult);
+        }
+        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' } as MockRunResult);
+      });
+
+      const result = await mockIpcMain.invoke('sessions:get-executions', sessionId);
+
+      expect(result.success).toBe(true);
+
+      const originProbe = mockGitExecutor.run.mock.calls.some((call) =>
+        call[0].argv.includes('refs/remotes/origin/main')
+      );
+      expect(originProbe).toBe(false);
+
+      const upstreamLog = mockGitExecutor.run.mock.calls.some((call) =>
+        call[0].argv.includes('upstream/main')
+      );
+      expect(upstreamLog).toBe(true);
+    });
   });
 
   describe('sessions:get-commits-behind-main', () => {
