@@ -523,9 +523,8 @@ export const InputBar: React.FC<InputBarProps> = React.memo(({
 
       // Cmd/Ctrl+V: Paste into editor
       if ((e.metaKey || e.ctrlKey) && (e.key === 'v' || e.key === 'V')) {
-        e.preventDefault();
         focusEditor();
-        // Let the editor's paste handler deal with it
+        // Allow native paste so the editor receives the clipboard event
         return;
       }
 
