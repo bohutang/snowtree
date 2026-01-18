@@ -192,7 +192,7 @@ export class CodexExecutor extends AbstractExecutor {
           });
         }
         this.pendingUserTurnRpcIdsByPanel.delete(panelId);
-        this.conversationIdByPanel.delete(panelId);
+        // Keep conversationIdByPanel - conversation persists across process restarts
       }
     }
     this.logger?.verbose(`Cleaned up Codex resources for session ${sessionId}`);
@@ -978,10 +978,13 @@ export class CodexExecutor extends AbstractExecutor {
     };
     // Don't pass model - let codex use its own config default (like Claude CLI)
 
-    // Create or resume conversation
-    const convo = isResume && resumePath
-      ? await this.resumeConversation(panelId, resumePath)
-      : await this.newConversation(panelId, overrides);
+    // Create or resume conversation (reuse existing if available)
+    const existing = this.conversationIdByPanel.get(panelId);
+    const convo = existing
+      ? existing
+      : (isResume && resumePath
+          ? await this.resumeConversation(panelId, resumePath)
+          : await this.newConversation(panelId, overrides));
 
     if (!convo || typeof convo !== 'object') {
       throw new Error(`Codex ${isResume && resumePath ? 'resumeConversation' : 'newConversation'} returned ${convo === null ? 'null' : typeof convo}`);
