@@ -187,22 +187,6 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
   // Preview state - tracks which files are in preview mode
   const [previewFiles, setPreviewFiles] = useState<Set<string>>(() => new Set());
 
-  // Enable preview for image files by default
-  useEffect(() => {
-    if (!files || files.length === 0) return;
-    setPreviewFiles(prev => {
-      const next = new Set(prev);
-      let changed = false;
-      for (const file of files) {
-        if (isImageFile(file.path) && !next.has(file.path)) {
-          next.add(file.path);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [files]);
-
   const togglePreview = useCallback((path: string) => {
     setPreviewFiles(prev => {
       const next = new Set(prev);
@@ -313,6 +297,22 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
       };
     });
   }, [diff, fileSources, expandFileContext]);
+
+  // Enable preview for image files by default
+  useEffect(() => {
+    if (!files || files.length === 0) return;
+    setPreviewFiles(prev => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const file of files) {
+        if (isImageFile(file.path) && !next.has(file.path)) {
+          next.add(file.path);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [files]);
 
   const scrollToFile = useCallback((filePath: string) => {
     const el = fileHeaderRefs.current.get(filePath);
