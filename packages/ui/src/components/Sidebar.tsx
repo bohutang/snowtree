@@ -171,8 +171,8 @@ export function Sidebar() {
   const handleOpenReleases = useCallback(async () => {
     const tag = appVersion ? `v${appVersion.replace(/^v/, '')}` : '';
     const url = tag
-      ? `https://github.com/bohutang/snowtree/releases/tag/${tag}`
-      : 'https://github.com/bohutang/snowtree/releases';
+      ? `https://github.com/databendlabs/snowtree/releases/tag/${tag}`
+      : 'https://github.com/databendlabs/snowtree/releases';
     try {
       await window.electronAPI?.invoke?.('shell:openExternal', url);
     } catch {
