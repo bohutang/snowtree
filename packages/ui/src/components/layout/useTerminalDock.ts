@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RefObject, MouseEvent as ReactMouseEvent } from 'react';
 import { clampTerminalHeight, TERMINAL_LAYOUT_KEYS, TERMINAL_LAYOUT_LIMITS } from './terminalUtils';
 
@@ -38,14 +38,25 @@ export const useTerminalDock = (sessionId: string, containerRef: RefObject<HTMLE
     return readStoredBoolean(TERMINAL_LAYOUT_KEYS.collapsed, sessionId, true);
   });
 
+  const heightSessionRef = useRef(sessionId);
+  const collapsedSessionRef = useRef(sessionId);
+
   const [isResizing, setIsResizing] = useState(false);
   const [focusRequestId, setFocusRequestId] = useState(0);
 
   useEffect(() => {
+    if (heightSessionRef.current !== sessionId) {
+      heightSessionRef.current = sessionId;
+      return;
+    }
     localStorage.setItem(getSessionKey(TERMINAL_LAYOUT_KEYS.height, sessionId), terminalHeight.toString());
   }, [terminalHeight, sessionId]);
 
   useEffect(() => {
+    if (collapsedSessionRef.current !== sessionId) {
+      collapsedSessionRef.current = sessionId;
+      return;
+    }
     localStorage.setItem(getSessionKey(TERMINAL_LAYOUT_KEYS.collapsed, sessionId), terminalCollapsed ? 'true' : 'false');
   }, [terminalCollapsed, sessionId]);
 

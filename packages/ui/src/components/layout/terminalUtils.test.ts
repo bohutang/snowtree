@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { clampTerminalHeight, TERMINAL_LAYOUT_LIMITS } from './terminalUtils';
+import { clampTerminalHeight, TERMINAL_LAYOUT_LIMITS, isTerminalEventTarget } from './terminalUtils';
 
 describe('clampTerminalHeight', () => {
   it('clamps to min height when cursor is too low', () => {
@@ -35,5 +35,33 @@ describe('clampTerminalHeight', () => {
     });
 
     expect(height).toBe(200);
+  });
+});
+
+describe('isTerminalEventTarget', () => {
+  it('returns false for non-elements', () => {
+    expect(isTerminalEventTarget(null)).toBe(false);
+    expect(isTerminalEventTarget(document)).toBe(false);
+  });
+
+  it('returns true when target is inside terminal panel', () => {
+    const panel = document.createElement('div');
+    panel.setAttribute('data-terminal-panel', '');
+    const button = document.createElement('button');
+    panel.appendChild(button);
+    document.body.appendChild(panel);
+
+    expect(isTerminalEventTarget(button)).toBe(true);
+
+    panel.remove();
+  });
+
+  it('returns false when target is outside terminal panel', () => {
+    const button = document.createElement('button');
+    document.body.appendChild(button);
+
+    expect(isTerminalEventTarget(button)).toBe(false);
+
+    button.remove();
   });
 });
