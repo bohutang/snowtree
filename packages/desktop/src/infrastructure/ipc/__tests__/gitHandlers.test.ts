@@ -1027,6 +1027,71 @@ describe('Git IPC Handlers - Branch Sync Status', () => {
       });
     });
 
+    it('should fallback to origin when branch remote is upstream and branch is missing', async () => {
+      mockGitExecutor.run
+        // 1. git branch --show-current
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: 'feature\n',
+          stderr: '',
+        } as MockRunResult)
+        // 2. git config branch.feature.pushRemote (fails)
+        .mockResolvedValueOnce({
+          exitCode: 1,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        // 3. git config branch.feature.remote (returns upstream)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: 'upstream\n',
+          stderr: '',
+        } as MockRunResult)
+        // 4. git fetch upstream feature
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        // 5. git show-ref --verify --quiet refs/remotes/upstream/feature (missing)
+        .mockResolvedValueOnce({
+          exitCode: 1,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        // 6. git fetch origin feature
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        // 7. git show-ref --verify --quiet refs/remotes/origin/feature
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        } as MockRunResult)
+        // 8. git rev-list origin/feature..HEAD --count (local ahead)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '2\n',
+          stderr: '',
+        } as MockRunResult)
+        // 9. git rev-list HEAD..origin/feature --count (remote ahead)
+        .mockResolvedValueOnce({
+          exitCode: 0,
+          stdout: '1\n',
+          stderr: '',
+        } as MockRunResult);
+
+      const result = await mockIpcMain.invoke('sessions:get-pr-remote-commits', sessionId);
+
+      expect(result).toEqual({
+        success: true,
+        data: { ahead: 2, behind: 1, branch: 'feature' },
+      });
+    });
+
     it('should return null branch when in detached HEAD state', async () => {
       mockGitExecutor.run
         .mockResolvedValueOnce({

@@ -959,10 +959,12 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       });
 
       let remoteName = 'origin';
+      let remoteSource: 'default' | 'pushRemote' | 'branchRemote' = 'default';
       const pushRemote = pushRemoteRes.stdout?.trim();
 
       if (pushRemote && pushRemoteRes.exitCode === 0) {
         remoteName = pushRemote;
+        remoteSource = 'pushRemote';
       } else {
         // Fallback: check branch.{branch}.remote
         const branchRemoteRes = await gitExecutor.run({
@@ -979,39 +981,56 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         const branchRemote = branchRemoteRes.stdout?.trim();
         if (branchRemote && branchRemoteRes.exitCode === 0) {
           remoteName = branchRemote;
+          remoteSource = 'branchRemote';
         }
       }
 
-      const remoteRef = `${remoteName}/${branch}`;
+      const fetchAndCheckRemoteRef = async (candidateRemote: string): Promise<boolean> => {
+        if (!candidateRemote) return false;
+        // Fetch the remote branch to get latest refs
+        await gitExecutor.run({
+          sessionId,
+          cwd,
+          argv: ['git', 'fetch', candidateRemote, branch],
+          op: 'read',
+          recordTimeline: false,
+          throwOnError: false,
+          timeoutMs: 10_000,
+          meta: { source: 'ipc.git', operation: 'fetch-branch' },
+        });
 
-      // Fetch the remote branch to get latest refs
-      await gitExecutor.run({
-        sessionId,
-        cwd,
-        argv: ['git', 'fetch', remoteName, branch],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 10_000,
-        meta: { source: 'ipc.git', operation: 'fetch-branch' },
-      });
+        // Check if remote branch exists
+        const refCheckRes = await gitExecutor.run({
+          sessionId,
+          cwd,
+          argv: ['git', 'show-ref', '--verify', '--quiet', `refs/remotes/${candidateRemote}/${branch}`],
+          op: 'read',
+          recordTimeline: false,
+          throwOnError: false,
+          timeoutMs: 3_000,
+          meta: { source: 'ipc.git', operation: 'check-remote-ref' },
+        });
 
-      // Check if remote branch exists
-      const refCheckRes = await gitExecutor.run({
-        sessionId,
-        cwd,
-        argv: ['git', 'show-ref', '--verify', '--quiet', `refs/remotes/${remoteRef}`],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 3_000,
-        meta: { source: 'ipc.git', operation: 'check-remote-ref' },
-      });
+        return refCheckRes.exitCode === 0;
+      };
 
-      if (refCheckRes.exitCode !== 0) {
+      let activeRemote = remoteName;
+      let remoteRefExists = await fetchAndCheckRemoteRef(activeRemote);
+
+      if (!remoteRefExists && remoteSource === 'branchRemote' && activeRemote !== 'origin') {
+        const originRefExists = await fetchAndCheckRemoteRef('origin');
+        if (originRefExists) {
+          activeRemote = 'origin';
+          remoteRefExists = true;
+        }
+      }
+
+      if (!remoteRefExists) {
         // Remote branch doesn't exist
         return { success: true, data: { ahead: 0, behind: 0, branch } };
       }
+
+      const remoteRef = `${activeRemote}/${branch}`;
 
       // Count commits: local ahead of remote and remote ahead of local
       const [aheadRes, behindRes] = await Promise.all([
