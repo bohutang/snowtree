@@ -119,7 +119,7 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
         // 5. gh pr view
         .mockResolvedValueOnce({
           exitCode: 0,
-          stdout: JSON.stringify({ number: 123, url: 'https://github.com/BohuTANG/blog-hexo/pull/123', state: 'OPEN' }),
+          stdout: JSON.stringify({ number: 123, url: 'https://github.com/BohuTANG/blog-hexo/pull/123', state: 'OPEN', isDraft: false }),
           stderr: '',
         } as MockRunResult);
 
@@ -127,7 +127,7 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
 
       expect(result).toEqual({
         success: true,
-        data: { number: 123, url: 'https://github.com/BohuTANG/blog-hexo/pull/123', merged: false },
+        data: { number: 123, url: 'https://github.com/BohuTANG/blog-hexo/pull/123', state: 'open' },
       });
 
       // Verify gh pr view was called with --repo and branch
@@ -166,7 +166,7 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
         // 5. gh pr view
         .mockResolvedValueOnce({
           exitCode: 0,
-          stdout: JSON.stringify({ number: 42, url: 'https://github.com/owner/repo/pull/42', state: 'MERGED' }),
+          stdout: JSON.stringify({ number: 42, url: 'https://github.com/owner/repo/pull/42', state: 'MERGED', isDraft: false }),
           stderr: '',
         } as MockRunResult);
 
@@ -174,7 +174,7 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
 
       expect(result).toEqual({
         success: true,
-        data: { number: 42, url: 'https://github.com/owner/repo/pull/42', merged: true },
+        data: { number: 42, url: 'https://github.com/owner/repo/pull/42', state: 'merged' },
       });
 
       // Verify --repo contains owner/repo from HTTPS URL
@@ -316,7 +316,7 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
         // 5. gh pr view
         .mockResolvedValueOnce({
           exitCode: 0,
-          stdout: JSON.stringify({ number: 50, url: 'https://github.com/owner/repo/pull/50', state: 'MERGED' }),
+          stdout: JSON.stringify({ number: 50, url: 'https://github.com/owner/repo/pull/50', state: 'MERGED', isDraft: false }),
           stderr: '',
         } as MockRunResult);
 
@@ -324,7 +324,7 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
 
       expect(result).toEqual({
         success: true,
-        data: { number: 50, url: 'https://github.com/owner/repo/pull/50', merged: true },
+        data: { number: 50, url: 'https://github.com/owner/repo/pull/50', state: 'merged' },
       });
     });
 
@@ -410,7 +410,7 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
         // 5. gh pr view
         .mockResolvedValueOnce({
           exitCode: 0,
-          stdout: JSON.stringify({ number: 10, url: 'https://github.com/owner/repo/pull/10', state: 'OPEN' }),
+          stdout: JSON.stringify({ number: 10, url: 'https://github.com/owner/repo/pull/10', state: 'OPEN', isDraft: false }),
           stderr: '',
         } as MockRunResult);
 
@@ -418,7 +418,7 @@ describe('Git IPC Handlers - Remote Pull Request', () => {
 
       expect(result).toEqual({
         success: true,
-        data: { number: 10, url: 'https://github.com/owner/repo/pull/10', merged: false },
+        data: { number: 10, url: 'https://github.com/owner/repo/pull/10', state: 'open' },
       });
 
       // Verify owner/repo was parsed correctly

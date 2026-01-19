@@ -3,7 +3,7 @@ import type { AppServices } from './types';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 
-type RemotePullRequest = { number: number; url: string; merged: boolean };
+type RemotePullRequest = { number: number; url: string; state: 'draft' | 'open' | 'merged' };
 
 /**
  * Parse a git remote URL and return the GitHub web URL for the repository.
@@ -419,7 +419,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         const res = await gitExecutor.run({
           sessionId,
           cwd: session.worktreePath,
-          argv: ['gh', 'pr', 'view', ...repoArgs, '--json', 'number,url,state'],
+          argv: ['gh', 'pr', 'view', ...repoArgs, '--json', 'number,url,state,isDraft'],
           op: 'read',
           recordTimeline: false,
           throwOnError: false,
@@ -433,13 +433,23 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         if (!raw) continue; // Try next remote
 
         try {
-          const parsed = JSON.parse(raw) as { number?: unknown; url?: unknown; state?: unknown } | null;
+          const parsed = JSON.parse(raw) as { number?: unknown; url?: unknown; state?: unknown; isDraft?: unknown } | null;
           const number = parsed && typeof parsed.number === 'number' ? parsed.number : null;
           const url = parsed && typeof parsed.url === 'string' ? parsed.url : '';
-          const state = parsed && typeof parsed.state === 'string' ? parsed.state : '';
-          const merged = state === 'MERGED';
+          const ghState = parsed && typeof parsed.state === 'string' ? parsed.state.toUpperCase() : '';
+          const isDraft = parsed && typeof parsed.isDraft === 'boolean' ? parsed.isDraft : false;
+
+          let prState: 'draft' | 'open' | 'merged';
+          if (ghState === 'MERGED') {
+            prState = 'merged';
+          } else if (isDraft) {
+            prState = 'draft';
+          } else {
+            prState = 'open';
+          }
+
           if (!number || !url) continue; // Try next remote
-          const out: RemotePullRequest = { number, url, merged };
+          const out: RemotePullRequest = { number, url, state: prState };
           return { success: true, data: out }; // Found PR, return immediately
         } catch {
           continue; // Try next remote
@@ -1257,6 +1267,97 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to get CI status' };
+    }
+  });
+
+  ipcMain.handle('sessions:mark-pr-ready', async (_event, sessionId: string) => {
+    try {
+      const session = sessionManager.getSession(sessionId);
+      if (!session?.worktreePath) {
+        return { success: false, error: 'Session worktree not found' };
+      }
+
+      // Get owner/repo from remotes
+      const remoteRes = await gitExecutor.run({
+        sessionId,
+        cwd: session.worktreePath,
+        argv: ['git', 'remote', '-v'],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 5_000,
+        meta: { source: 'ipc.git', operation: 'mark-pr-ready-remote' },
+      });
+
+      if (remoteRes.exitCode !== 0) {
+        return { success: false, error: 'Failed to get git remotes' };
+      }
+
+      const ownerRepo = parseOwnerRepoFromRemoteOutput(remoteRes.stdout || '');
+      if (!ownerRepo) {
+        return { success: false, error: 'Could not parse owner/repo from remotes' };
+      }
+
+      // Get current branch
+      const branchRes = await gitExecutor.run({
+        sessionId,
+        cwd: session.worktreePath,
+        argv: ['git', 'branch', '--show-current'],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 5_000,
+        meta: { source: 'ipc.git', operation: 'mark-pr-ready-branch' },
+      });
+
+      if (branchRes.exitCode !== 0 || !branchRes.stdout?.trim()) {
+        return { success: false, error: 'Failed to get current branch' };
+      }
+
+      const branch = branchRes.stdout.trim();
+
+      // Determine if this is a fork PR
+      const remotesOutput = remoteRes.stdout || '';
+      const upstreamMatch = remotesOutput.match(/^upstream\s+(\S+)/m);
+      const originMatch = remotesOutput.match(/^origin\s+(\S+)/m);
+
+      let branchArg = branch;
+      if (upstreamMatch && originMatch) {
+        const upstreamUrl = upstreamMatch[1];
+        const originUrl = originMatch[1];
+        if (isForkOfUpstream(originUrl, upstreamUrl)) {
+          const originOwner = parseGitRemoteToOwnerRepoParts(originUrl)?.owner;
+          if (originOwner) {
+            branchArg = `${originOwner}:${branch}`;
+          }
+        }
+      }
+
+      // Mark PR as ready for review using gh pr ready
+      const readyRes = await gitExecutor.run({
+        sessionId,
+        cwd: session.worktreePath,
+        argv: ['gh', 'pr', 'ready', '--repo', ownerRepo, branchArg],
+        op: 'write',
+        recordTimeline: true,
+        throwOnError: false,
+        timeoutMs: 30_000,
+        meta: { source: 'ipc.git', operation: 'mark-pr-ready' },
+      });
+
+      if (readyRes.exitCode !== 0) {
+        return {
+          success: false,
+          error: readyRes.stderr || 'Failed to mark PR as ready'
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to mark PR as ready'
+      };
     }
   });
 }

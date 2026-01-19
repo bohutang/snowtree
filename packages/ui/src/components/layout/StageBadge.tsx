@@ -16,13 +16,25 @@ const STAGE_STYLES = {
     bg: 'color-mix(in srgb, var(--st-accent) 20%, transparent)',
     color: 'var(--st-accent)',
   },
+  reviewDraft: {
+    bg: 'color-mix(in srgb, var(--st-text-muted) 20%, transparent)',
+    color: 'var(--st-text-muted)',
+  },
   reviewAhead: {
     bg: 'color-mix(in srgb, var(--st-accent) 20%, transparent)',
     color: 'var(--st-accent)',
   },
+  reviewAheadDraft: {
+    bg: 'color-mix(in srgb, var(--st-text-muted) 20%, transparent)',
+    color: 'var(--st-text-muted)',
+  },
   reviewBehind: {
     bg: 'color-mix(in srgb, var(--st-warning) 20%, transparent)',
     color: 'var(--st-warning)',
+  },
+  reviewBehindDraft: {
+    bg: 'color-mix(in srgb, var(--st-text-muted) 20%, transparent)',
+    color: 'var(--st-text-muted)',
   },
   merged: {
     bg: 'color-mix(in srgb, var(--st-success) 20%, transparent)',
@@ -49,19 +61,21 @@ export const StageBadge: React.FC<StageBadgeProps> = React.memo(({ stage, classN
   }
 
   if (stage.stage === 'review') {
-    const { prNumber, ahead, behind } = stage;
+    const { prNumber, ahead, behind, isDraft } = stage;
 
     // PR with local commits to push
     if (ahead > 0) {
+      const style = isDraft ? STAGE_STYLES.reviewAheadDraft : STAGE_STYLES.reviewAhead;
       return (
         <span
           className={`${baseClasses} ${className}`}
           style={{
-            backgroundColor: STAGE_STYLES.reviewAhead.bg,
-            color: STAGE_STYLES.reviewAhead.color,
+            backgroundColor: style.bg,
+            color: style.color,
           }}
         >
           PR #{prNumber}
+          {isDraft && <span className="ml-0.5">(draft)</span>}
           <ArrowUp className="w-2.5 h-2.5 ml-0.5" />
           {ahead}
         </span>
@@ -70,15 +84,17 @@ export const StageBadge: React.FC<StageBadgeProps> = React.memo(({ stage, classN
 
     // PR with remote commits to pull
     if (behind > 0) {
+      const style = isDraft ? STAGE_STYLES.reviewBehindDraft : STAGE_STYLES.reviewBehind;
       return (
         <span
           className={`${baseClasses} ${className}`}
           style={{
-            backgroundColor: STAGE_STYLES.reviewBehind.bg,
-            color: STAGE_STYLES.reviewBehind.color,
+            backgroundColor: style.bg,
+            color: style.color,
           }}
         >
           PR #{prNumber}
+          {isDraft && <span className="ml-0.5">(draft)</span>}
           <ArrowDown className="w-2.5 h-2.5 ml-0.5" />
           {behind}
         </span>
@@ -86,15 +102,17 @@ export const StageBadge: React.FC<StageBadgeProps> = React.memo(({ stage, classN
     }
 
     // PR synced
+    const style = isDraft ? STAGE_STYLES.reviewDraft : STAGE_STYLES.review;
     return (
       <span
         className={`${baseClasses} ${className}`}
         style={{
-          backgroundColor: STAGE_STYLES.review.bg,
-          color: STAGE_STYLES.review.color,
+          backgroundColor: style.bg,
+          color: style.color,
         }}
       >
         PR #{prNumber}
+        {isDraft && <span className="ml-0.5">(draft)</span>}
         <Check className="w-2.5 h-2.5 ml-0.5" />
       </span>
     );

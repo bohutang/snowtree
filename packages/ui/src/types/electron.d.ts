@@ -53,7 +53,7 @@ export type ExecutionDTO = {
 export type RemotePullRequestDTO = {
   number: number;
   url: string;
-  merged: boolean;
+  state: 'draft' | 'open' | 'merged';
 };
 
 export type UpdateAvailableInfo = {
@@ -155,6 +155,7 @@ export interface ElectronAPI {
       failureCount: number;
       pendingCount: number;
     } | null>>;
+    markPRReady: (sessionId: string) => Promise<IPCResponse<unknown>>;
     // Terminal helpers
     ensureTerminalPanel: (sessionId: string) => Promise<IPCResponse<ToolPanel>>;
     preCreateTerminal: (sessionId: string) => Promise<IPCResponse<unknown>>;

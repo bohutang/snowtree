@@ -3,7 +3,7 @@
  */
 export type WorkspaceStage =
   | { stage: 'working' }
-  | { stage: 'review'; prNumber: number; ahead: number; behind: number }
+  | { stage: 'review'; prNumber: number; ahead: number; behind: number; isDraft: boolean }
   | { stage: 'merged' };
 
 /**
@@ -13,7 +13,7 @@ export interface WorkspaceStageInput {
   remotePullRequest: {
     number: number;
     url: string;
-    merged: boolean;
+    state: 'draft' | 'open' | 'merged';
   } | null;
   prSyncStatus: {
     localAhead: number;
@@ -29,7 +29,7 @@ export function getWorkspaceStage(data: WorkspaceStageInput): WorkspaceStage {
   const { remotePullRequest, prSyncStatus } = data;
 
   // Stage 3: Merged
-  if (remotePullRequest?.merged) {
+  if (remotePullRequest?.state === 'merged') {
     return { stage: 'merged' };
   }
 
@@ -40,6 +40,7 @@ export function getWorkspaceStage(data: WorkspaceStageInput): WorkspaceStage {
       prNumber: remotePullRequest.number,
       ahead: prSyncStatus?.localAhead ?? 0,
       behind: prSyncStatus?.remoteAhead ?? 0,
+      isDraft: remotePullRequest.state === 'draft',
     };
   }
 

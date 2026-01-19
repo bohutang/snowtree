@@ -31,7 +31,7 @@ export interface WorkingTreeDiffs {
 export interface RemotePullRequest {
   number: number;
   url: string;
-  merged: boolean;
+  state: 'draft' | 'open' | 'merged';
 }
 
 export interface BranchSyncStatus {
@@ -260,12 +260,12 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
       );
       if (signal.aborted) return null;
       if (response.success && response.data && typeof response.data === 'object') {
-        const pr = response.data as { number?: unknown; url?: unknown; merged?: unknown } | null;
+        const pr = response.data as { number?: unknown; url?: unknown; state?: unknown } | null;
         const number = pr && typeof pr.number === 'number' ? pr.number : null;
         const url = pr && typeof pr.url === 'string' ? pr.url : '';
-        const merged = pr && typeof pr.merged === 'boolean' ? pr.merged : false;
+        const state = pr && typeof pr.state === 'string' && (pr.state === 'draft' || pr.state === 'open' || pr.state === 'merged') ? pr.state : 'open';
         if (number && url) {
-          return { number, url, merged };
+          return { number, url, state };
         }
       }
       return null;
@@ -523,7 +523,7 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
           if (current && newPR && (
             newPR.number !== current.number ||
             newPR.url !== current.url ||
-            newPR.merged !== current.merged
+            newPR.state !== current.state
           )) {
             return newPR;
           }

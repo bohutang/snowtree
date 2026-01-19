@@ -173,7 +173,7 @@ describe('useRightPanelData - PR polling', () => {
       // Third call onwards: PR created
       return {
         success: true,
-        data: { number: 123, url: 'https://github.com/user/repo/pull/123', merged: false }
+        data: { number: 123, url: 'https://github.com/user/repo/pull/123', state: 'open' }
       };
     });
 
@@ -200,13 +200,13 @@ describe('useRightPanelData - PR polling', () => {
         // First two calls: draft PR
         return {
           success: true,
-          data: { number: 123, url: 'https://github.com/user/repo/pull/123', merged: false }
+          data: { number: 123, url: 'https://github.com/user/repo/pull/123', state: 'draft' }
         };
       }
       // Third call onwards: PR merged
       return {
         success: true,
-        data: { number: 123, url: 'https://github.com/user/repo/pull/123', merged: true }
+        data: { number: 123, url: 'https://github.com/user/repo/pull/123', state: 'merged' }
       };
     });
 
@@ -233,7 +233,7 @@ describe('useRightPanelData - PR polling', () => {
         // First two calls: PR exists
         return {
           success: true,
-          data: { number: 123, url: 'https://github.com/user/repo/pull/123', merged: false }
+          data: { number: 123, url: 'https://github.com/user/repo/pull/123', state: 'open' }
         };
       }
       // Third call onwards: PR deleted
