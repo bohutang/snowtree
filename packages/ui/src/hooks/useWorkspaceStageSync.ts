@@ -22,11 +22,15 @@ export function useWorkspaceStageSync() {
 
       const remotePullRequest = prRes?.success && prRes.data && typeof prRes.data === 'object'
         ? (() => {
-            const pr = prRes.data as { number?: unknown; url?: unknown; merged?: unknown };
+            const pr = prRes.data as { number?: unknown; url?: unknown; state?: unknown };
             const number = typeof pr.number === 'number' ? pr.number : null;
             const url = typeof pr.url === 'string' ? pr.url : '';
-            const merged = typeof pr.merged === 'boolean' ? pr.merged : false;
-            return number && url ? { number, url, merged } : null;
+            const stateRaw = typeof pr.state === 'string' ? pr.state : 'open';
+            const state: 'draft' | 'open' | 'merged' =
+              stateRaw === 'draft' || stateRaw === 'open' || stateRaw === 'merged'
+                ? stateRaw
+                : 'open';
+            return number && url ? { number, url, state } : null;
           })()
         : null;
 

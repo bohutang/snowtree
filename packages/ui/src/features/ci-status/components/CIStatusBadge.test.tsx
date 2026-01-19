@@ -92,33 +92,41 @@ describe('CIStatusBadge', () => {
   it('shows expand indicator when onClick is provided', () => {
     const onClick = vi.fn();
     const status = createMockStatus();
-    render(<CIStatusBadge status={status} onClick={onClick} />);
+    const { container } = render(<CIStatusBadge status={status} onClick={onClick} />);
 
-    expect(screen.getByText('▼')).toBeInTheDocument();
+    // Check for ChevronRight icon (collapsed state)
+    const chevron = container.querySelector('svg.lucide-chevron-right');
+    expect(chevron).toBeInTheDocument();
   });
 
   it('does not show expand indicator when onClick is not provided', () => {
     const status = createMockStatus();
-    render(<CIStatusBadge status={status} />);
+    const { container } = render(<CIStatusBadge status={status} />);
 
-    expect(screen.queryByText('▼')).not.toBeInTheDocument();
+    // No chevron icons should be present
+    const chevronRight = container.querySelector('svg.lucide-chevron-right');
+    const chevronDown = container.querySelector('svg.lucide-chevron-down');
+    expect(chevronRight).not.toBeInTheDocument();
+    expect(chevronDown).not.toBeInTheDocument();
   });
 
-  it('rotates expand indicator when expanded', () => {
+  it('shows ChevronDown when expanded', () => {
     const onClick = vi.fn();
     const status = createMockStatus();
-    render(<CIStatusBadge status={status} onClick={onClick} expanded={true} />);
+    const { container } = render(<CIStatusBadge status={status} onClick={onClick} expanded={true} />);
 
-    const indicator = screen.getByText('▼');
-    expect(indicator).toHaveClass('rotate-180');
+    // Check for ChevronDown icon (expanded state)
+    const chevron = container.querySelector('svg.lucide-chevron-down');
+    expect(chevron).toBeInTheDocument();
   });
 
-  it('does not rotate expand indicator when not expanded', () => {
+  it('shows ChevronRight when not expanded', () => {
     const onClick = vi.fn();
     const status = createMockStatus();
-    render(<CIStatusBadge status={status} onClick={onClick} expanded={false} />);
+    const { container } = render(<CIStatusBadge status={status} onClick={onClick} expanded={false} />);
 
-    const indicator = screen.getByText('▼');
-    expect(indicator).not.toHaveClass('rotate-180');
+    // Check for ChevronRight icon (collapsed state)
+    const chevron = container.querySelector('svg.lucide-chevron-right');
+    expect(chevron).toBeInTheDocument();
   });
 });

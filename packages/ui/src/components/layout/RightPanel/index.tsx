@@ -96,6 +96,24 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
       }
     }, [session?.id]);
 
+    const handleMarkPRReady = useCallback(async () => {
+      if (!session?.id) return;
+      try {
+        console.log('[RightPanel] Marking PR as ready for session:', session.id);
+        const result = await window.electronAPI?.sessions?.markPRReady?.(session.id);
+        console.log('[RightPanel] Mark PR ready result:', result);
+        if (result?.success) {
+          console.log('[RightPanel] Successfully marked PR as ready, refreshing...');
+          // Refresh to get updated PR status
+          refresh();
+        } else {
+          console.error('[RightPanel] Failed to mark PR as ready:', result?.error);
+        }
+      } catch (error) {
+        console.error('[RightPanel] Error marking PR as ready:', error);
+      }
+    }, [session?.id, refresh]);
+
     const isWorkingTreeSelected = selection?.kind === 'working';
     const selectedCommitHash =
       selection?.kind === 'commit' ? selection.hash : null;
@@ -292,11 +310,26 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                     data-testid="right-panel-open-remote-pr"
                   >
                     <div className="flex items-center gap-2">
-                      <GitPullRequest className="w-4 h-4" style={{ color: colors.accent }} />
+                      <GitPullRequest
+                        className="w-4 h-4"
+                        style={{ color: remotePullRequest.state === 'draft' ? colors.text.muted : colors.accent }}
+                      />
                       <span className="text-xs font-medium" style={{ color: colors.text.primary }}>
                         PR #{remotePullRequest.number}
                       </span>
-                      {remotePullRequest.merged && (
+                      {remotePullRequest.state === 'draft' && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[9px] font-medium"
+                          style={{
+                            backgroundColor: colors.bg.hover,
+                            color: colors.text.muted,
+                            border: `1px solid ${colors.border}`,
+                          }}
+                        >
+                          draft
+                        </span>
+                      )}
+                      {remotePullRequest.state === 'merged' && (
                         <span
                           className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium"
                           style={{
@@ -349,17 +382,35 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
 
               {/* Action Buttons */}
               <div className="space-y-1.5">
+                {/* Mark as Ready (only show if draft, PR synced, and CI passed) */}
+                {remotePullRequest && remotePullRequest.state === 'draft' && prSyncStatus?.localAhead === 0 && ciStatus?.rollupState === 'success' && (
+                  <button
+                    type="button"
+                    onClick={handleMarkPRReady}
+                    disabled={isDisabled}
+                    className="w-full flex items-center justify-center px-2.5 py-2 rounded text-xs font-medium transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
+                    style={{
+                      backgroundColor: colors.accent,
+                      color: '#fff',
+                    }}
+                    data-testid="right-panel-mark-pr-ready"
+                  >
+                    <Check className="w-3.5 h-3.5 mr-2" />
+                    Mark as Ready for Review
+                  </button>
+                )}
+
                 {/* Push & Create/Sync PR */}
                 {onPushPR && (
                   <button
                     type="button"
                     onClick={onPushPR}
-                    disabled={isPushPRDisabled || isDisabled || remotePullRequest?.merged === true || !hasSessionCommits || (!!remotePullRequest && prSyncStatus?.localAhead === 0)}
+                    disabled={isPushPRDisabled || isDisabled || remotePullRequest?.state === 'merged' || !hasSessionCommits || (!!remotePullRequest && prSyncStatus?.localAhead === 0)}
                     className="w-full flex items-center justify-between px-2.5 py-2 rounded text-xs transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
                     style={{
                       backgroundColor: colors.bg.hover,
                       border: `1px solid ${colors.border}`,
-                      color: (isPushPRDisabled || isDisabled || remotePullRequest?.merged === true || !hasSessionCommits || (!!remotePullRequest && prSyncStatus?.localAhead === 0))
+                      color: (isPushPRDisabled || isDisabled || remotePullRequest?.state === 'merged' || !hasSessionCommits || (!!remotePullRequest && prSyncStatus?.localAhead === 0))
                         ? colors.text.muted
                         : colors.accent,
                     }}
@@ -395,12 +446,12 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                   <button
                     type="button"
                     onClick={onSyncPR}
-                    disabled={isSyncPRDisabled || isDisabled || hasUncommittedChanges || remotePullRequest?.merged || (prSyncStatus?.remoteAhead || 0) === 0}
+                    disabled={isSyncPRDisabled || isDisabled || hasUncommittedChanges || remotePullRequest?.state === 'merged' || (prSyncStatus?.remoteAhead || 0) === 0}
                     className="w-full flex items-center justify-between px-2.5 py-2 rounded text-xs transition-all duration-75 st-hoverable st-focus-ring disabled:opacity-40"
                     style={{
                       backgroundColor: colors.bg.hover,
                       border: `1px solid ${colors.border}`,
-                      color: (isSyncPRDisabled || isDisabled || hasUncommittedChanges || remotePullRequest?.merged || (prSyncStatus?.remoteAhead || 0) === 0)
+                      color: (isSyncPRDisabled || isDisabled || hasUncommittedChanges || remotePullRequest?.state === 'merged' || (prSyncStatus?.remoteAhead || 0) === 0)
                         ? colors.text.muted
                         : colors.text.modified,
                     }}
@@ -439,7 +490,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                 )}
 
                 {/* Update from Main - hidden when PR is merged */}
-                {onUpdateBranch && !remotePullRequest?.merged && (
+                {onUpdateBranch && remotePullRequest?.state !== 'merged' && (
                   <button
                     type="button"
                     onClick={onUpdateBranch}

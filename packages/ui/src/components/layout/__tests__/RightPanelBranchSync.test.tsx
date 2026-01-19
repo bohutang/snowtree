@@ -79,7 +79,7 @@ describe('RightPanel - Branch Sync Button States', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
         commits: [{ id: 1, commit_message: 'commit', timestamp: validTimestamp, stats_additions: 0, stats_deletions: 0, stats_files_changed: 0, after_commit_hash: 'def456' }],
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: false },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
         prSyncStatus: { localAhead: 0, remoteAhead: 0, branch: 'feature' },
       });
 
@@ -99,7 +99,7 @@ describe('RightPanel - Branch Sync Button States', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
         commits: [{ id: 1, commit_message: 'commit', timestamp: validTimestamp, stats_additions: 0, stats_deletions: 0, stats_files_changed: 0, after_commit_hash: 'def456' }],
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: false },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
         prSyncStatus: { localAhead: 2, remoteAhead: 0, branch: 'feature' },
       });
 
@@ -119,7 +119,7 @@ describe('RightPanel - Branch Sync Button States', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
         commits: [{ id: 1, commit_message: 'commit', timestamp: validTimestamp, stats_additions: 0, stats_deletions: 0, stats_files_changed: 0, after_commit_hash: 'def456' }],
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: false },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
         prSyncStatus: { localAhead: 0, remoteAhead: 0, branch: 'feature' },
       });
 
@@ -138,7 +138,7 @@ describe('RightPanel - Branch Sync Button States', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
         commits: [{ id: 1, commit_message: 'commit', timestamp: validTimestamp, stats_additions: 0, stats_deletions: 0, stats_files_changed: 0, after_commit_hash: 'def456' }],
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: false },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
         prSyncStatus: { localAhead: 3, remoteAhead: 0, branch: 'feature' },
       });
 
@@ -157,7 +157,7 @@ describe('RightPanel - Branch Sync Button States', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
         commits: [{ id: 1, commit_message: 'commit', timestamp: validTimestamp, stats_additions: 0, stats_deletions: 0, stats_files_changed: 0, after_commit_hash: 'def456' }],
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: true },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'merged' },
         prSyncStatus: { localAhead: 2, remoteAhead: 0, branch: 'feature' },
       });
 
@@ -178,7 +178,7 @@ describe('RightPanel - Branch Sync Button States', () => {
     it('should be disabled when remoteAhead is 0', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: false },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
         prSyncStatus: { localAhead: 0, remoteAhead: 0, branch: 'feature' },
       });
 
@@ -198,7 +198,7 @@ describe('RightPanel - Branch Sync Button States', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
         workingTree: { staged: [], unstaged: [], untracked: [] },
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: false },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
         prSyncStatus: { localAhead: 0, remoteAhead: 3, branch: 'feature' },
       });
 
@@ -218,7 +218,7 @@ describe('RightPanel - Branch Sync Button States', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
         workingTree: { staged: [{ path: 'test.ts', additions: 1, deletions: 0, type: 'modified' }], unstaged: [], untracked: [] },
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: false },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
         prSyncStatus: { localAhead: 0, remoteAhead: 3, branch: 'feature' },
       });
 
@@ -237,7 +237,7 @@ describe('RightPanel - Branch Sync Button States', () => {
     it('should show synced badge when remoteAhead is 0', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: false },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
         prSyncStatus: { localAhead: 0, remoteAhead: 0, branch: 'feature' },
       });
 
@@ -257,7 +257,7 @@ describe('RightPanel - Branch Sync Button States', () => {
     it('should show behind count badge when remoteAhead > 0', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: false },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
         prSyncStatus: { localAhead: 0, remoteAhead: 5, branch: 'feature' },
       });
 
@@ -275,7 +275,7 @@ describe('RightPanel - Branch Sync Button States', () => {
     it('should be disabled when PR is merged', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: true },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'merged' },
         prSyncStatus: { localAhead: 0, remoteAhead: 3, branch: 'feature' },
       });
 
@@ -295,7 +295,7 @@ describe('RightPanel - Branch Sync Button States', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
         workingTree: { staged: [{ path: 'test.ts', additions: 1, deletions: 0, type: 'modified' }], unstaged: [], untracked: [] },
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: false },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
         prSyncStatus: { localAhead: 0, remoteAhead: 3, branch: 'feature' },
       });
 
@@ -444,7 +444,7 @@ describe('RightPanel - Branch Sync Button States', () => {
     it('should display PR number when PR exists', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
-        remotePullRequest: { number: 456, url: 'https://github.com/owner/repo/pull/456', merged: false },
+        remotePullRequest: { number: 456, url: 'https://github.com/owner/repo/pull/456', state: 'open' },
       });
 
       render(
@@ -460,7 +460,7 @@ describe('RightPanel - Branch Sync Button States', () => {
     it('should display merged badge when PR is merged', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
-        remotePullRequest: { number: 789, url: 'https://github.com/owner/repo/pull/789', merged: true },
+        remotePullRequest: { number: 789, url: 'https://github.com/owner/repo/pull/789', state: 'merged' },
       });
 
       render(
@@ -514,7 +514,7 @@ describe('RightPanel - Branch Sync Button States', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
         commits: [{ id: 1, commit_message: 'commit', timestamp: validTimestamp, stats_additions: 0, stats_deletions: 0, stats_files_changed: 0, after_commit_hash: 'def456' }],
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: false },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
         prSyncStatus: { localAhead: 1, remoteAhead: 0, branch: 'feature' },
       });
 
@@ -535,7 +535,7 @@ describe('RightPanel - Branch Sync Button States', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
         commits: [{ id: 1, commit_message: 'commit', timestamp: validTimestamp, stats_additions: 0, stats_deletions: 0, stats_files_changed: 0, after_commit_hash: 'def456' }],
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: false },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
         branchSyncStatus: { commitsBehindMain: 5, baseBranch: 'main' },
         prSyncStatus: { localAhead: 2, remoteAhead: 3, branch: 'feature' },
         isLoading: true,
@@ -560,7 +560,7 @@ describe('RightPanel - Branch Sync Button States', () => {
       mockUseRightPanelData.mockReturnValue({
         ...defaultMockData,
         commits: [{ id: 1, commit_message: 'commit', timestamp: validTimestamp, stats_additions: 0, stats_deletions: 0, stats_files_changed: 0, after_commit_hash: 'def456' }],
-        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', merged: false },
+        remotePullRequest: { number: 123, url: 'https://github.com/owner/repo/pull/123', state: 'open' },
         branchSyncStatus: { commitsBehindMain: 5, baseBranch: 'main' },
         prSyncStatus: { localAhead: 2, remoteAhead: 3, branch: 'feature' },
         isMutating: true,

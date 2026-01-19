@@ -7,6 +7,7 @@ describe('CIStatusDetails', () => {
   const createMockCheck = (overrides: Partial<CICheck> = {}): CICheck => ({
     id: 1,
     name: 'test-check',
+    workflow: null,
     status: 'completed',
     conclusion: 'success',
     startedAt: '2026-01-14T05:25:00Z',
@@ -28,6 +29,10 @@ describe('CIStatusDetails', () => {
     ];
     render(<CIStatusDetails checks={checks} />);
 
+    // Success checks are collapsed by default, need to expand them
+    const successHeader = screen.getByText(/Success \(3\)/);
+    fireEvent.click(successHeader);
+
     expect(screen.getByText('build')).toBeInTheDocument();
     expect(screen.getByText('test')).toBeInTheDocument();
     expect(screen.getByText('lint')).toBeInTheDocument();
@@ -37,6 +42,10 @@ describe('CIStatusDetails', () => {
     const checks = [createMockCheck({ conclusion: 'success' })];
     render(<CIStatusDetails checks={checks} />);
 
+    // Expand success section
+    const successHeader = screen.getByText(/Success \(1\)/);
+    fireEvent.click(successHeader);
+
     expect(screen.getByText('success')).toBeInTheDocument();
   });
 
@@ -44,6 +53,7 @@ describe('CIStatusDetails', () => {
     const checks = [createMockCheck({ conclusion: 'failure' })];
     render(<CIStatusDetails checks={checks} />);
 
+    // Failure checks are always expanded
     expect(screen.getByText('failure')).toBeInTheDocument();
   });
 
@@ -57,6 +67,7 @@ describe('CIStatusDetails', () => {
     ];
     render(<CIStatusDetails checks={checks} />);
 
+    // In-progress checks are in pending section, always expanded
     expect(screen.getByText('running')).toBeInTheDocument();
   });
 
@@ -70,12 +81,17 @@ describe('CIStatusDetails', () => {
     ];
     render(<CIStatusDetails checks={checks} />);
 
+    // Queued checks are in pending section, always expanded
     expect(screen.getByText('pending')).toBeInTheDocument();
   });
 
   it('renders skipped status', () => {
     const checks = [createMockCheck({ conclusion: 'skipped' })];
     render(<CIStatusDetails checks={checks} />);
+
+    // Expand success section
+    const successHeader = screen.getByText(/Success \(1\)/);
+    fireEvent.click(successHeader);
 
     expect(screen.getByText('skipped')).toBeInTheDocument();
   });
@@ -84,6 +100,7 @@ describe('CIStatusDetails', () => {
     const checks = [createMockCheck({ conclusion: 'cancelled' })];
     render(<CIStatusDetails checks={checks} />);
 
+    // Cancelled checks are in failed section, always expanded
     expect(screen.getByText('cancelled')).toBeInTheDocument();
   });
 
@@ -92,7 +109,14 @@ describe('CIStatusDetails', () => {
     const check = createMockCheck({ detailsUrl: 'https://github.com/test' });
     render(<CIStatusDetails checks={[check]} onCheckClick={onCheckClick} />);
 
-    fireEvent.click(screen.getByRole('button'));
+    // Expand success section to access the check button
+    const successHeader = screen.getByText(/Success \(1\)/);
+    fireEvent.click(successHeader);
+
+    // Now click the check button (skip the group header button)
+    const buttons = screen.getAllByRole('button');
+    const checkButton = buttons[1]; // First is group header, second is check
+    fireEvent.click(checkButton);
     expect(onCheckClick).toHaveBeenCalledWith(check);
   });
 
@@ -101,7 +125,14 @@ describe('CIStatusDetails', () => {
     const check = createMockCheck({ detailsUrl: null });
     render(<CIStatusDetails checks={[check]} onCheckClick={onCheckClick} />);
 
-    fireEvent.click(screen.getByRole('button'));
+    // Expand success section
+    const successHeader = screen.getByText(/Success \(1\)/);
+    fireEvent.click(successHeader);
+
+    // Click the check button (not the group header)
+    const buttons = screen.getAllByRole('button');
+    const checkButton = buttons[1];
+    fireEvent.click(checkButton);
     expect(onCheckClick).not.toHaveBeenCalled();
   });
 
@@ -109,14 +140,26 @@ describe('CIStatusDetails', () => {
     const check = createMockCheck({ detailsUrl: null });
     render(<CIStatusDetails checks={[check]} />);
 
-    expect(screen.getByRole('button')).toBeDisabled();
+    // Expand success section
+    const successHeader = screen.getByText(/Success \(1\)/);
+    fireEvent.click(successHeader);
+
+    const buttons = screen.getAllByRole('button');
+    const checkButton = buttons[1];
+    expect(checkButton).toBeDisabled();
   });
 
   it('enables button when check has URL', () => {
     const check = createMockCheck({ detailsUrl: 'https://github.com/test' });
     render(<CIStatusDetails checks={[check]} />);
 
-    expect(screen.getByRole('button')).not.toBeDisabled();
+    // Expand success section
+    const successHeader = screen.getByText(/Success \(1\)/);
+    fireEvent.click(successHeader);
+
+    const buttons = screen.getAllByRole('button');
+    const checkButton = buttons[1];
+    expect(checkButton).not.toBeDisabled();
   });
 
   it('renders multiple checks in order', () => {
@@ -127,13 +170,22 @@ describe('CIStatusDetails', () => {
     ];
     render(<CIStatusDetails checks={checks} />);
 
+    // Expand success section
+    const successHeader = screen.getByText(/Success \(3\)/);
+    fireEvent.click(successHeader);
+
+    // Now we have 1 group header + 3 check buttons = 4 buttons total
     const buttons = screen.getAllByRole('button');
-    expect(buttons).toHaveLength(3);
+    expect(buttons).toHaveLength(4);
   });
 
   it('renders check with neutral conclusion', () => {
     const checks = [createMockCheck({ conclusion: 'neutral' })];
     render(<CIStatusDetails checks={checks} />);
+
+    // Expand success section
+    const successHeader = screen.getByText(/Success \(1\)/);
+    fireEvent.click(successHeader);
 
     expect(screen.getByText('neutral')).toBeInTheDocument();
   });
@@ -142,6 +194,7 @@ describe('CIStatusDetails', () => {
     const checks = [createMockCheck({ conclusion: 'timed_out' })];
     render(<CIStatusDetails checks={checks} />);
 
+    // Timed out checks are in failed section, always expanded
     expect(screen.getByText('timed_out')).toBeInTheDocument();
   });
 });

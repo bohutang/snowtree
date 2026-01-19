@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, X, Loader2, Clock, Circle } from 'lucide-react';
+import { Check, X, Loader2, Clock, Circle, ChevronDown, ChevronRight } from 'lucide-react';
 import type { CIStatus, CIRollupState } from '../types';
 
 interface CIStatusBadgeProps {
@@ -84,12 +84,11 @@ export const CIStatusBadge: React.FC<CIStatusBadgeProps> = ({
         </span>
       )}
       {onClick && (
-        <span
-          className={`ml-0.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
-          style={{ fontSize: '8px' }}
-        >
-          ▼
-        </span>
+        expanded ? (
+          <ChevronDown className="w-2.5 h-2.5 ml-0.5" strokeWidth={2.5} />
+        ) : (
+          <ChevronRight className="w-2.5 h-2.5 ml-0.5" strokeWidth={2.5} />
+        )
       )}
     </>
   );

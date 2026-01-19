@@ -3,7 +3,7 @@ import type { AppServices } from './types';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 
-type RemotePullRequest = { number: number; url: string; merged: boolean };
+type RemotePullRequest = { number: number; url: string; state: 'draft' | 'open' | 'merged' };
 
 /**
  * Parse a git remote URL and return the GitHub web URL for the repository.
@@ -419,7 +419,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         const res = await gitExecutor.run({
           sessionId,
           cwd: session.worktreePath,
-          argv: ['gh', 'pr', 'view', ...repoArgs, '--json', 'number,url,state'],
+          argv: ['gh', 'pr', 'view', ...repoArgs, '--json', 'number,url,state,isDraft'],
           op: 'read',
           recordTimeline: false,
           throwOnError: false,
@@ -433,13 +433,23 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         if (!raw) continue; // Try next remote
 
         try {
-          const parsed = JSON.parse(raw) as { number?: unknown; url?: unknown; state?: unknown } | null;
+          const parsed = JSON.parse(raw) as { number?: unknown; url?: unknown; state?: unknown; isDraft?: unknown } | null;
           const number = parsed && typeof parsed.number === 'number' ? parsed.number : null;
           const url = parsed && typeof parsed.url === 'string' ? parsed.url : '';
-          const state = parsed && typeof parsed.state === 'string' ? parsed.state : '';
-          const merged = state === 'MERGED';
+          const ghState = parsed && typeof parsed.state === 'string' ? parsed.state.toUpperCase() : '';
+          const isDraft = parsed && typeof parsed.isDraft === 'boolean' ? parsed.isDraft : false;
+
+          let prState: 'draft' | 'open' | 'merged';
+          if (ghState === 'MERGED') {
+            prState = 'merged';
+          } else if (isDraft) {
+            prState = 'draft';
+          } else {
+            prState = 'open';
+          }
+
           if (!number || !url) continue; // Try next remote
-          const out: RemotePullRequest = { number, url, merged };
+          const out: RemotePullRequest = { number, url, state: prState };
           return { success: true, data: out }; // Found PR, return immediately
         } catch {
           continue; // Try next remote
@@ -1155,7 +1165,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       }
 
       // Use gh pr checks to get CI status
-      // gh pr checks --json returns: name, state (SUCCESS/FAILURE/PENDING/etc), startedAt, completedAt, link
+      // gh pr checks --json returns: name, workflow, state (SUCCESS/FAILURE/PENDING/etc), startedAt, completedAt, link
       const checksRes = await gitExecutor.run({
         sessionId,
         cwd,
@@ -1163,7 +1173,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
           'gh', 'pr', 'checks',
           '--repo', ownerRepo,
           branchRef,
-          '--json', 'name,state,startedAt,completedAt,link',
+          '--json', 'name,state,startedAt,completedAt,link,workflow',
         ],
         op: 'read',
         recordTimeline: false,
@@ -1185,6 +1195,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       try {
         const checksData = JSON.parse(raw) as Array<{
           name?: string;
+          workflow?: string;
           state?: string;  // SUCCESS, FAILURE, PENDING, IN_PROGRESS, SKIPPED, etc
           startedAt?: string;
           completedAt?: string;
@@ -1202,6 +1213,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
           return {
             id: idx,
             name: c.name || 'Unknown',
+            workflow: c.workflow || null,
             status,
             conclusion,
             startedAt: c.startedAt || null,
@@ -1255,6 +1267,120 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to get CI status' };
+    }
+  });
+
+  ipcMain.handle('sessions:mark-pr-ready', async (_event, sessionId: string) => {
+    try {
+      console.log('[git.ts] Mark PR ready called for session:', sessionId);
+      const session = sessionManager.getSession(sessionId);
+      if (!session?.worktreePath) {
+        console.error('[git.ts] Session worktree not found');
+        return { success: false, error: 'Session worktree not found' };
+      }
+
+      // Get current branch
+      const branchRes = await gitExecutor.run({
+        sessionId,
+        cwd: session.worktreePath,
+        argv: ['git', 'branch', '--show-current'],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 5_000,
+        meta: { source: 'ipc.git', operation: 'mark-pr-ready-branch' },
+      });
+
+      if (branchRes.exitCode !== 0 || !branchRes.stdout?.trim()) {
+        console.error('[git.ts] Failed to get current branch');
+        return { success: false, error: 'Failed to get current branch' };
+      }
+
+      const branch = branchRes.stdout.trim();
+      console.log('[git.ts] Current branch:', branch);
+
+      // Get origin owner for fork workflow
+      let originOwner: string | null = null;
+      const originRes = await gitExecutor.run({
+        sessionId,
+        cwd: session.worktreePath,
+        argv: ['git', 'remote', 'get-url', 'origin'],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 3_000,
+        meta: { source: 'ipc.git', operation: 'mark-pr-ready-origin' },
+      });
+      if (originRes.exitCode === 0 && originRes.stdout?.trim()) {
+        const originUrl = originRes.stdout.trim();
+        const originMatch = originUrl.match(/github\.com[:/]([^/]+)\//);
+        if (originMatch) {
+          originOwner = originMatch[1];
+        }
+      }
+      console.log('[git.ts] Origin owner:', originOwner);
+
+      // Try to mark PR ready in multiple remotes (same logic as get-remote-pull-request)
+      const remoteNames = ['upstream', 'origin'];
+
+      for (const remoteName of remoteNames) {
+        const remoteRes = await gitExecutor.run({
+          sessionId,
+          cwd: session.worktreePath,
+          argv: ['git', 'remote', 'get-url', remoteName],
+          op: 'read',
+          recordTimeline: false,
+          throwOnError: false,
+          timeoutMs: 3_000,
+          meta: { source: 'ipc.git', operation: 'mark-pr-ready-remote' },
+        });
+
+        if (remoteRes.exitCode !== 0 || !remoteRes.stdout?.trim()) continue;
+
+        const url = remoteRes.stdout.trim();
+        // Parse: git@github.com:owner/repo.git or https://github.com/owner/repo.git
+        const match = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+        if (!match) continue;
+
+        const ownerRepo = match[1];
+
+        // For upstream repo in fork workflow, use "owner:branch" format
+        // For origin repo, use just "branch"
+        const branchArg = remoteName === 'upstream' && originOwner ? `${originOwner}:${branch}` : branch;
+
+        console.log(`[git.ts] Trying ${remoteName} with repo=${ownerRepo}, branch=${branchArg}`);
+
+        // Mark PR as ready for review using gh pr ready
+        const readyRes = await gitExecutor.run({
+          sessionId,
+          cwd: session.worktreePath,
+          argv: ['gh', 'pr', 'ready', '--repo', ownerRepo, branchArg],
+          op: 'write',
+          recordTimeline: true,
+          throwOnError: false,
+          timeoutMs: 30_000,
+          meta: { source: 'ipc.git', operation: 'mark-pr-ready' },
+        });
+
+        console.log('[git.ts] gh pr ready result:', { exitCode: readyRes.exitCode, stdout: readyRes.stdout, stderr: readyRes.stderr });
+
+        if (readyRes.exitCode === 0) {
+          console.log('[git.ts] Successfully marked PR as ready');
+          return { success: true };
+        }
+
+        // If failed, try next remote
+        console.log(`[git.ts] Failed on ${remoteName}, trying next remote...`);
+      }
+
+      // Failed on all remotes
+      console.error('[git.ts] Failed to mark PR as ready on all remotes');
+      return { success: false, error: 'Failed to mark PR as ready' };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to mark PR as ready'
+      };
     }
   });
 }

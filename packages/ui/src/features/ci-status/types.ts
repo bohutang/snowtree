@@ -16,6 +16,7 @@ export type CheckStatus = 'queued' | 'in_progress' | 'completed';
 export interface CICheck {
   id: number;
   name: string;
+  workflow: string | null;
   status: CheckStatus;
   conclusion: CheckConclusion;
   startedAt: string | null;
