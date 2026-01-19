@@ -125,6 +125,7 @@ export class DatabaseService {
 
     const migrations: Migration[] = [
       { version: 1, name: 'add_execution_mode', run: () => this.migrate_001_add_execution_mode() },
+      { version: 2, name: 'add_repo_info_cache', run: () => this.migrate_002_add_repo_info_cache() },
       // Future migrations go here
     ];
 
@@ -187,6 +188,35 @@ export class DatabaseService {
       this.db.prepare("ALTER TABLE sessions ADD COLUMN execution_mode TEXT DEFAULT 'execute'").run();
     }
   }
+
+  // Migration 002: Add repo info cache columns to sessions table
+  private migrate_002_add_repo_info_cache(): void {
+    interface SqliteTableInfo {
+      cid: number;
+      name: string;
+      type: string;
+      notnull: number;
+      dflt_value: unknown;
+      pk: number;
+    }
+
+    const tableInfo = this.db.prepare("PRAGMA table_info(sessions)").all() as SqliteTableInfo[];
+    const existingColumns = new Set(tableInfo.map((col: SqliteTableInfo) => col.name));
+
+    if (!existingColumns.has('current_branch')) {
+      this.db.prepare("ALTER TABLE sessions ADD COLUMN current_branch TEXT").run();
+    }
+    if (!existingColumns.has('owner_repo')) {
+      this.db.prepare("ALTER TABLE sessions ADD COLUMN owner_repo TEXT").run();
+    }
+    if (!existingColumns.has('is_fork')) {
+      this.db.prepare("ALTER TABLE sessions ADD COLUMN is_fork BOOLEAN DEFAULT 0").run();
+    }
+    if (!existingColumns.has('origin_owner_repo')) {
+      this.db.prepare("ALTER TABLE sessions ADD COLUMN origin_owner_repo TEXT").run();
+    }
+  }
+
   private ensureSessionsTableColumns(): void {
     interface SqliteTableInfo {
       cid: number;
@@ -220,6 +250,22 @@ export class DatabaseService {
 
     if (!existing.has('execution_mode')) {
       addColumnBestEffort("ALTER TABLE sessions ADD COLUMN execution_mode TEXT DEFAULT 'execute'", 'execution_mode');
+    }
+
+    if (!existing.has('current_branch')) {
+      addColumnBestEffort("ALTER TABLE sessions ADD COLUMN current_branch TEXT", 'current_branch');
+    }
+
+    if (!existing.has('owner_repo')) {
+      addColumnBestEffort("ALTER TABLE sessions ADD COLUMN owner_repo TEXT", 'owner_repo');
+    }
+
+    if (!existing.has('is_fork')) {
+      addColumnBestEffort("ALTER TABLE sessions ADD COLUMN is_fork BOOLEAN DEFAULT 0", 'is_fork');
+    }
+
+    if (!existing.has('origin_owner_repo')) {
+      addColumnBestEffort("ALTER TABLE sessions ADD COLUMN origin_owner_repo TEXT", 'origin_owner_repo');
     }
   }
 
@@ -865,6 +911,22 @@ export class DatabaseService {
     if (data.execution_mode !== undefined) {
       updates.push('execution_mode = ?');
       values.push(data.execution_mode);
+    }
+    if (data.current_branch !== undefined) {
+      updates.push('current_branch = ?');
+      values.push(data.current_branch);
+    }
+    if (data.owner_repo !== undefined) {
+      updates.push('owner_repo = ?');
+      values.push(data.owner_repo);
+    }
+    if (data.is_fork !== undefined) {
+      updates.push('is_fork = ?');
+      values.push(data.is_fork ? 1 : 0);
+    }
+    if (data.origin_owner_repo !== undefined) {
+      updates.push('origin_owner_repo = ?');
+      values.push(data.origin_owner_repo);
     }
 
     if (updates.length === 0) {

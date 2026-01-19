@@ -64,6 +64,96 @@ function isForkOfUpstream(originUrl: string, upstreamUrl: string): boolean {
 }
 
 /**
+ * Fetch and cache repo information (branch, owner/repo, isFork, originOwnerRepo) for a session.
+ * This should be called once per session to populate the cache.
+ */
+async function fetchAndCacheRepoInfo(
+  sessionId: string,
+  worktreePath: string,
+  sessionManager: AppServices['sessionManager'],
+  gitExecutor: AppServices['gitExecutor']
+): Promise<{ currentBranch: string; ownerRepo: string | null; isFork: boolean; originOwnerRepo: string | null } | null> {
+  try {
+    // Get current branch
+    const branchRes = await gitExecutor.run({
+      sessionId,
+      cwd: worktreePath,
+      argv: ['git', 'branch', '--show-current'],
+      op: 'read',
+      recordTimeline: false,
+      throwOnError: false,
+      timeoutMs: 3_000,
+      meta: { source: 'ipc.git', operation: 'cache-branch' },
+    });
+
+    const currentBranch = branchRes.stdout?.trim() || '';
+
+    // Get origin and upstream URLs
+    const [originRes, upstreamRes] = await Promise.all([
+      gitExecutor.run({
+        sessionId,
+        cwd: worktreePath,
+        argv: ['git', 'remote', 'get-url', 'origin'],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 3_000,
+        meta: { source: 'ipc.git', operation: 'cache-origin-url' },
+      }),
+      gitExecutor.run({
+        sessionId,
+        cwd: worktreePath,
+        argv: ['git', 'remote', 'get-url', 'upstream'],
+        op: 'read',
+        recordTimeline: false,
+        throwOnError: false,
+        timeoutMs: 3_000,
+        meta: { source: 'ipc.git', operation: 'cache-upstream-url' },
+      }),
+    ]);
+
+    const originUrl = originRes.exitCode === 0 ? originRes.stdout?.trim() : null;
+    const upstreamUrl = upstreamRes.exitCode === 0 ? upstreamRes.stdout?.trim() : null;
+
+    // Determine owner/repo and fork status
+    let ownerRepo: string | null = null;
+    let originOwnerRepo: string | null = null;
+    let isFork = false;
+
+    if (originUrl) {
+      originOwnerRepo = parseGitRemoteToOwnerRepo(originUrl);
+    }
+
+    if (originUrl && upstreamUrl) {
+      // Check if this is a fork workflow
+      isFork = isForkOfUpstream(originUrl, upstreamUrl);
+      // Prefer upstream repo if it's a fork
+      ownerRepo = isFork ? parseGitRemoteToOwnerRepo(upstreamUrl) : originOwnerRepo;
+    } else if (originUrl) {
+      ownerRepo = originOwnerRepo;
+    } else if (upstreamUrl) {
+      ownerRepo = parseGitRemoteToOwnerRepo(upstreamUrl);
+    }
+
+    // Cache the results in the session
+    const session = sessionManager.getSession(sessionId);
+    if (session) {
+      sessionManager.db.updateSession(sessionId, {
+        current_branch: currentBranch,
+        owner_repo: ownerRepo,
+        is_fork: isFork,
+        origin_owner_repo: originOwnerRepo,
+      });
+    }
+
+    return { currentBranch, ownerRepo, isFork, originOwnerRepo };
+  } catch (error) {
+    console.error('[git.ts] Failed to fetch and cache repo info:', error);
+    return null;
+  }
+}
+
+/**
  * Parse git remote -v output and extract owner/repo for the origin remote.
  */
 function parseOwnerRepoFromRemoteOutput(remoteOutput: string): string | null {
@@ -313,29 +403,48 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       const session = sessionManager.getSession(sessionId);
       if (!session?.worktreePath) return { success: false, error: 'Session worktree not found' };
 
-      // Run branch and tracking remote queries in parallel
-      const [branchRes, trackingRes] = await Promise.all([
-        gitExecutor.run({
-          sessionId,
-          cwd: session.worktreePath,
-          argv: ['git', 'branch', '--show-current'],
-          op: 'read',
-          meta: { source: 'ipc.git', operation: 'current-branch' },
-        }),
-        gitExecutor.run({
+      // Try to use cached data first
+      const dbSession = sessionManager.db.getSession(sessionId);
+      if (dbSession?.current_branch) {
+        // Determine remote name from tracking branch if available
+        let remoteName: string | null = null;
+        const trackingRes = await gitExecutor.run({
           sessionId,
           cwd: session.worktreePath,
           argv: ['git', 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
           op: 'read',
           throwOnError: false,
           meta: { source: 'ipc.git', operation: 'tracking-remote' },
-        }),
-      ]);
+        });
 
-      const currentBranch = branchRes.stdout.trim();
+        if (trackingRes.exitCode === 0 && trackingRes.stdout.trim()) {
+          const trackingBranch = trackingRes.stdout.trim();
+          const slashIndex = trackingBranch.indexOf('/');
+          if (slashIndex > 0) {
+            remoteName = trackingBranch.substring(0, slashIndex);
+          }
+        }
 
-      // Parse remote name from tracking branch (e.g., "origin/main" -> "origin")
+        return { success: true, data: { currentBranch: dbSession.current_branch, remoteName } };
+      }
+
+      // Cache miss or first time - fetch and cache
+      const repoInfo = await fetchAndCacheRepoInfo(sessionId, session.worktreePath, sessionManager, gitExecutor);
+      if (!repoInfo) {
+        return { success: false, error: 'Failed to fetch repo info' };
+      }
+
+      // Get remote name from tracking branch
       let remoteName: string | null = null;
+      const trackingRes = await gitExecutor.run({
+        sessionId,
+        cwd: session.worktreePath,
+        argv: ['git', 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
+        op: 'read',
+        throwOnError: false,
+        meta: { source: 'ipc.git', operation: 'tracking-remote' },
+      });
+
       if (trackingRes.exitCode === 0 && trackingRes.stdout.trim()) {
         const trackingBranch = trackingRes.stdout.trim();
         const slashIndex = trackingBranch.indexOf('/');
@@ -344,7 +453,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
         }
       }
 
-      return { success: true, data: { currentBranch, remoteName } };
+      return { success: true, data: { currentBranch: repoInfo.currentBranch, remoteName } };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to load git commands' };
     }
@@ -355,42 +464,38 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       const session = sessionManager.getSession(sessionId);
       if (!session?.worktreePath) return { success: false, error: 'Session worktree not found' };
 
-      // Get current branch name
-      const branchRes = await gitExecutor.run({
-        sessionId,
-        cwd: session.worktreePath,
-        argv: ['git', 'branch', '--show-current'],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 3_000,
-        meta: { source: 'ipc.git', operation: 'get-branch' },
-      });
-      const branch = branchRes.stdout?.trim();
-      if (!branch) return { success: true, data: null };
+      // Try to use cached data first
+      const dbSession = sessionManager.db.getSession(sessionId);
+      let branch = dbSession?.current_branch;
+      let ownerRepo = dbSession?.owner_repo;
+      let isFork = dbSession?.is_fork || false;
+      let originOwnerRepo = dbSession?.origin_owner_repo;
 
-      // Get origin owner for fork workflow
-      let originOwner: string | null = null;
-      const originRes = await gitExecutor.run({
-        sessionId,
-        cwd: session.worktreePath,
-        argv: ['git', 'remote', 'get-url', 'origin'],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 3_000,
-        meta: { source: 'ipc.git', operation: 'get-origin-url' },
-      });
-      if (originRes.exitCode === 0 && originRes.stdout?.trim()) {
-        const originUrl = originRes.stdout.trim();
-        const originMatch = originUrl.match(/github\.com[:/]([^/]+)\//);
-        if (originMatch) {
-          originOwner = originMatch[1];
+      // If cache miss, fetch and cache
+      if (!branch || !ownerRepo) {
+        const repoInfo = await fetchAndCacheRepoInfo(sessionId, session.worktreePath, sessionManager, gitExecutor);
+        if (!repoInfo) {
+          return { success: true, data: null };
         }
+        branch = repoInfo.currentBranch;
+        ownerRepo = repoInfo.ownerRepo;
+        isFork = repoInfo.isFork;
+        originOwnerRepo = repoInfo.originOwnerRepo;
+      }
+
+      // Check if we have the necessary info
+      if (!branch || !ownerRepo) {
+        return { success: true, data: null };
+      }
+
+      // Get origin owner for fork workflow (derive from originOwnerRepo)
+      let originOwner: string | null = null;
+      if (isFork && originOwnerRepo) {
+        originOwner = originOwnerRepo.split('/')[0];
       }
 
       // Try to find PR in multiple remotes (upstream first for fork workflow, then origin)
-      const remoteNames = ['upstream', 'origin'];
+      const remoteNames = isFork ? ['upstream', 'origin'] : ['origin', 'upstream'];
 
       for (const remoteName of remoteNames) {
         const remoteRes = await gitExecutor.run({
@@ -937,19 +1042,19 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
 
       const cwd = session.worktreePath;
 
-      // Get current branch name
-      const branchRes = await gitExecutor.run({
-        sessionId,
-        cwd,
-        argv: ['git', 'branch', '--show-current'],
-        op: 'read',
-        recordTimeline: false,
-        throwOnError: false,
-        timeoutMs: 3_000,
-        meta: { source: 'ipc.git', operation: 'get-branch' },
-      });
+      // Try to use cached branch name
+      const dbSession = sessionManager.db.getSession(sessionId);
+      let branch = dbSession?.current_branch;
 
-      const branch = branchRes.stdout?.trim();
+      // If cache miss, fetch and cache
+      if (!branch) {
+        const repoInfo = await fetchAndCacheRepoInfo(sessionId, cwd, sessionManager, gitExecutor);
+        if (!repoInfo) {
+          return { success: true, data: { ahead: 0, behind: 0, branch: null } };
+        }
+        branch = repoInfo.currentBranch;
+      }
+
       if (!branch) {
         return { success: true, data: { ahead: 0, behind: 0, branch: null } };
       }

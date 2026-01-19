@@ -35,6 +35,10 @@ export interface Session {
   skip_continue_next?: boolean | null;
   archived?: boolean | null;
   execution_mode?: 'plan' | 'execute' | null;
+  current_branch?: string | null;
+  owner_repo?: string | null;
+  is_fork?: boolean | null;
+  origin_owner_repo?: string | null;
 }
 
 export interface Project {
@@ -127,6 +131,10 @@ export interface UpdateSessionData {
   base_branch?: string | null;
   archived?: boolean;
   execution_mode?: 'plan' | 'execute';
+  current_branch?: string | null;
+  owner_repo?: string | null;
+  is_fork?: boolean | null;
+  origin_owner_repo?: string | null;
 }
 
 export interface PromptMarker {

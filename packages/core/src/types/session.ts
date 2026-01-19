@@ -35,6 +35,10 @@ export interface Session {
   archived?: boolean;
   claudeSessionId?: string;
   executionMode?: 'plan' | 'execute';
+  currentBranch?: string;
+  ownerRepo?: string; // Main repo (upstream in fork, origin otherwise)
+  isFork?: boolean;
+  originOwnerRepo?: string; // Origin repo (only for fork workflow)
 }
 
 export interface SessionUpdate {
@@ -50,6 +54,10 @@ export interface SessionUpdate {
   skipContinueNext?: boolean;
   toolType?: 'claude' | 'codex' | 'gemini' | 'none';
   executionMode?: 'plan' | 'execute';
+  currentBranch?: string;
+  ownerRepo?: string;
+  isFork?: boolean;
+  originOwnerRepo?: string;
 }
 
 export interface GitStatus {
