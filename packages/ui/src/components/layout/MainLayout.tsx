@@ -126,13 +126,10 @@ export const MainLayout: React.FC = React.memo(() => {
 
   // Initialize git cache when session changes
   useEffect(() => {
-    if (!sessionId || !session?.ownerRepo) {
-      // Only init if session exists but cache is empty
-      if (sessionId && session && !session.ownerRepo) {
-        window.electronAPI.sessions.initGitCache(sessionId).catch((error: unknown) => {
-          console.warn('[MainLayout] Failed to init git cache:', error);
-        });
-      }
+    if (sessionId && session && !session.ownerRepo) {
+      window.electronAPI.sessions.initGitCache(sessionId).catch((error: unknown) => {
+        console.warn('[MainLayout] Failed to init git cache:', error);
+      });
     }
   }, [sessionId, session?.ownerRepo]);
 
