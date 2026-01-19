@@ -1155,7 +1155,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       }
 
       // Use gh pr checks to get CI status
-      // gh pr checks --json returns: name, state (SUCCESS/FAILURE/PENDING/etc), startedAt, completedAt, link
+      // gh pr checks --json returns: name, workflow, state (SUCCESS/FAILURE/PENDING/etc), startedAt, completedAt, link
       const checksRes = await gitExecutor.run({
         sessionId,
         cwd,
@@ -1163,7 +1163,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
           'gh', 'pr', 'checks',
           '--repo', ownerRepo,
           branchRef,
-          '--json', 'name,state,startedAt,completedAt,link',
+          '--json', 'name,state,startedAt,completedAt,link,workflow',
         ],
         op: 'read',
         recordTimeline: false,
@@ -1185,6 +1185,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
       try {
         const checksData = JSON.parse(raw) as Array<{
           name?: string;
+          workflow?: string;
           state?: string;  // SUCCESS, FAILURE, PENDING, IN_PROGRESS, SKIPPED, etc
           startedAt?: string;
           completedAt?: string;
@@ -1202,6 +1203,7 @@ export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): vo
           return {
             id: idx,
             name: c.name || 'Unknown',
+            workflow: c.workflow || null,
             status,
             conclusion,
             startedAt: c.startedAt || null,

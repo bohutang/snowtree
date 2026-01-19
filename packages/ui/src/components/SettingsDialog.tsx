@@ -117,7 +117,7 @@ export function SettingsDialog() {
                 <input
                   type="number"
                   value={settings.fontSize}
-                  onChange={(e) => updateSettings({ fontSize: parseInt(e.target.value) || 14 })}
+                  onChange={(e) => updateSettings({ fontSize: parseInt(e.target.value) || 15 })}
                   min="10"
                   max="24"
                   className="px-3 py-1.5 rounded border text-sm w-20 st-focus-ring"
@@ -159,7 +159,7 @@ export function SettingsDialog() {
                 >
                   <span
                     className="block h-4 w-4 bg-white rounded-full transition-transform"
-                    style={{ transform: settings.enabledProviders.claude ? 'translateX(17px)' : 'translateX(0)' }}
+                    style={{ transform: settings.enabledProviders.claude ? 'translateX(1.25rem)' : 'translateX(0)' }}
                   />
                 </button>
               </div>
@@ -186,7 +186,7 @@ export function SettingsDialog() {
                 >
                   <span
                     className="block h-4 w-4 bg-white rounded-full transition-transform"
-                    style={{ transform: settings.enabledProviders.codex ? 'translateX(17px)' : 'translateX(0)' }}
+                    style={{ transform: settings.enabledProviders.codex ? 'translateX(1.25rem)' : 'translateX(0)' }}
                   />
                 </button>
               </div>
@@ -213,7 +213,7 @@ export function SettingsDialog() {
                 >
                   <span
                     className="block h-4 w-4 bg-white rounded-full transition-transform"
-                    style={{ transform: settings.enabledProviders.gemini ? 'translateX(17px)' : 'translateX(0)' }}
+                    style={{ transform: settings.enabledProviders.gemini ? 'translateX(1.25rem)' : 'translateX(0)' }}
                   />
                 </button>
               </div>

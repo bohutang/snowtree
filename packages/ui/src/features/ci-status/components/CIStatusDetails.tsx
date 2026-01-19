@@ -119,9 +119,9 @@ export const CIStatusDetails: React.FC<CIStatusDetailsProps> = ({
               <span
                 className="truncate"
                 style={{ color: 'var(--st-text)' }}
-                title={check.name}
+                title={check.workflow ? `${check.workflow} / ${check.name}` : check.name}
               >
-                {check.name}
+                {check.workflow ? `${check.workflow} / ${check.name}` : check.name}
               </span>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0 ml-2">

@@ -576,7 +576,7 @@ export function useRightPanelData(sessionId: string | undefined): RightPanelData
 
       try {
         const newCIStatus = await fetchCIStatus();
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && newCIStatus !== null) {
           setCIStatus(newCIStatus);
         }
       } catch (error) {

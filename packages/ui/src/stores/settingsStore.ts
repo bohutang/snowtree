@@ -21,7 +21,7 @@ export interface AppSettings {
 
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'system',
-  fontSize: 14,
+  fontSize: 15,
   enabledProviders: {
     claude: true,
     codex: true,
