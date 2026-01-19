@@ -156,12 +156,6 @@ export interface ElectronAPI {
       pendingCount: number;
     } | null>>;
     markPRReady: (sessionId: string) => Promise<IPCResponse<unknown>>;
-    initGitCache: (sessionId: string) => Promise<IPCResponse<{
-      currentBranch: string;
-      ownerRepo: string | null;
-      isFork: boolean;
-      originOwnerRepo: string | null;
-    }>>;
     // Terminal helpers
     ensureTerminalPanel: (sessionId: string) => Promise<IPCResponse<ToolPanel>>;
     preCreateTerminal: (sessionId: string) => Promise<IPCResponse<unknown>>;

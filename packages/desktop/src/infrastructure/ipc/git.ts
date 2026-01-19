@@ -175,25 +175,6 @@ function isImageFile(filePath: string): boolean {
 export function registerGitHandlers(ipcMain: IpcMain, services: AppServices): void {
   const { sessionManager, gitDiffManager, gitStagingManager, gitStatusManager, gitExecutor } = services;
 
-  // Initialize git cache for a session (branch, owner/repo, fork status)
-  ipcMain.handle('sessions:init-git-cache', async (_event, sessionId: string) => {
-    try {
-      const session = sessionManager.getSession(sessionId);
-      if (!session?.worktreePath) {
-        return { success: false, error: 'Session worktree not found' };
-      }
-
-      const repoInfo = await fetchAndCacheRepoInfo(sessionId, session.worktreePath, sessionManager, gitExecutor);
-      if (!repoInfo) {
-        return { success: false, error: 'Failed to fetch repo info' };
-      }
-
-      return { success: true, data: repoInfo };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to init git cache' };
-    }
-  });
-
   ipcMain.handle('sessions:get-executions', async (_event, sessionId: string) => {
     try {
       const session = sessionManager.getSession(sessionId);
