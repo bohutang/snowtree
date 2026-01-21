@@ -154,9 +154,9 @@ export function InlineDiffViewer({
   filePath,
   className,
 }: InlineDiffViewerProps) {
+  const isMarkdown = useMemo(() => isMarkdownFile(filePath || ''), [filePath]);
   const [showPreview, setShowPreview] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
-  const isMarkdown = useMemo(() => isMarkdownFile(filePath || ''), [filePath]);
 
   const diffLines = useMemo(() => {
     return generateDiff(oldString, newString);
