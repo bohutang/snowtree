@@ -1015,7 +1015,11 @@ export const ZedDiffViewer = forwardRef<ZedDiffViewerHandle, ZedDiffViewerProps>
                   ) : (
                     <MarkdownPreview content={previewContent} />
                   )
-                ) : (isBinaryFile(file.path) && !isImageFile(file.path)) || file.hunks.length === 0 ? (
+                ) : file.hunks.length === 0 ? (
+                  <div className="st-diff-binary-notice" style={{ padding: '20px', textAlign: 'center', color: 'var(--vscode-descriptionForeground)' }}>
+                    {isImageFile(file.path) ? 'Binary file (image)' : 'Binary file'}
+                  </div>
+                ) : (isBinaryFile(file.path) && !isImageFile(file.path)) ? (
                   <div className="st-diff-binary-notice" style={{ padding: '20px', textAlign: 'center', color: 'var(--vscode-descriptionForeground)' }}>
                     Binary file
                   </div>
