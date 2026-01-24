@@ -128,12 +128,20 @@ line 4`;
     });
 
     it('toggles to preview mode when clicking preview button', async () => {
+      // Mock file content loading
+      vi.mocked(useFileContentModule.useFileContent).mockReturnValue({
+        content: '# New Title\n\nSome content',
+        loading: false,
+        error: false,
+      });
+
       const user = userEvent.setup();
       const { container } = render(
         <InlineDiffViewer
           oldString="# Old Title"
           newString="# New Title\n\nSome content"
           filePath="README.md"
+          sessionId="session-1"
         />
       );
 
@@ -150,12 +158,20 @@ line 4`;
     });
 
     it('renders new content in preview mode', async () => {
+      // Mock file content loading
+      vi.mocked(useFileContentModule.useFileContent).mockReturnValue({
+        content: '# Hello World',
+        loading: false,
+        error: false,
+      });
+
       const user = userEvent.setup();
       render(
         <InlineDiffViewer
           oldString="# Old"
           newString="# Hello World"
           filePath="test.md"
+          sessionId="session-1"
         />
       );
 
@@ -166,12 +182,20 @@ line 4`;
     });
 
     it('toggles back to diff mode when clicking preview button again', async () => {
+      // Mock file content loading
+      vi.mocked(useFileContentModule.useFileContent).mockReturnValue({
+        content: '# New',
+        loading: false,
+        error: false,
+      });
+
       const user = userEvent.setup();
       const { container } = render(
         <InlineDiffViewer
           oldString="# Old"
           newString="# New"
           filePath="test.md"
+          sessionId="session-1"
         />
       );
 
