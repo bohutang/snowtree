@@ -612,7 +612,9 @@ const AgentResponse: React.FC<{
   status: 'running' | 'done' | 'error' | 'interrupted';
   timestamp: string;
   endTimestamp: string;
-}> = ({ messages, commands, status, timestamp: _timestamp, endTimestamp }) => {
+  sessionId: string;
+  worktreePath?: string;
+}> = ({ messages, commands, status, timestamp: _timestamp, endTimestamp, sessionId, worktreePath }) => {
   const [showCommands, setShowCommands] = useState(true);
   const userToggledRef = useRef(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -819,6 +821,8 @@ const AgentResponse: React.FC<{
                           oldString={oldString ?? ''}
                           newString={newString ?? ''}
                           filePath={filePath}
+                          sessionId={sessionId}
+                          worktreePath={worktreePath}
                         />
                       </div>
                     )}
@@ -833,6 +837,8 @@ const AgentResponse: React.FC<{
                           oldString={df.oldString}
                           newString={df.newString}
                           filePath={df.filePath}
+                          sessionId={sessionId}
+                          worktreePath={worktreePath}
                         />
                       </div>
                     ))}
@@ -1187,6 +1193,8 @@ export const TimelineView: React.FC<{
                   status={timelineItem.status}
                   timestamp={timelineItem.timestamp}
                   endTimestamp={timelineItem.endTimestamp}
+                  sessionId={sessionId}
+                  worktreePath={session.worktreePath}
                 />
               );
             })}
