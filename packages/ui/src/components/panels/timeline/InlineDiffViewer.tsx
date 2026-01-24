@@ -165,7 +165,11 @@ export function InlineDiffViewer({
 
   // Check if file path is within worktree (relative path or absolute path within worktree)
   const isFileInWorktree = useMemo(() => {
-    if (!filePath || !worktreePath) return true; // Assume true if we don't have enough info
+    if (!filePath) return true;
+    // If no worktreePath provided, only allow relative paths
+    if (!worktreePath) {
+      return !filePath.startsWith('/');
+    }
     // If path is absolute and doesn't start with worktreePath, it's outside
     if (filePath.startsWith('/') && !filePath.startsWith(worktreePath)) {
       return false;

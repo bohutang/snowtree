@@ -261,6 +261,18 @@ line 4`;
       const previewBtn = document.querySelector('.diff-preview-btn');
       expect(previewBtn).toBeInTheDocument();
     });
+
+    it('does not show preview button for absolute paths when worktreePath is not provided', () => {
+      render(
+        <InlineDiffViewer
+          oldString="# Old"
+          newString="# New"
+          filePath="/some/absolute/path/README.md"
+        />
+      );
+      const previewBtn = document.querySelector('.diff-preview-btn');
+      expect(previewBtn).not.toBeInTheDocument();
+    });
   });
 
   describe('Diff Algorithm', () => {
