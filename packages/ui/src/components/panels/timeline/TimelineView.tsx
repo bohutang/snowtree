@@ -1114,7 +1114,21 @@ export const TimelineView: React.FC<{
 
   return (
     <DiffCollapseContext.Provider value={diffCollapseContextValue}>
-      <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ backgroundColor: colors.bg }}>
+      <div className="flex-1 flex flex-col h-full overflow-hidden relative" style={{ backgroundColor: colors.bg }}>
+        {/* Collapse all diffs button - fixed to top-right corner */}
+        <div className="absolute top-3 right-3 z-10">
+          <button
+            type="button"
+            onClick={() => diffCollapseContextValue.triggerCollapseAll()}
+            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] transition-all hover:bg-white/10 active:scale-95"
+            style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.text.secondary }}
+            title="Collapse all diffs"
+          >
+            <ChevronsUp className="w-3 h-3" />
+            <span>Collapse All</span>
+          </button>
+        </div>
+
         <div ref={scrollRef} className="flex-1 overflow-y-auto relative" onScroll={handleScroll}>
           <div ref={contentRef} className="px-6 py-4">
             <div className="flex flex-col gap-6">
@@ -1274,20 +1288,6 @@ export const TimelineView: React.FC<{
             </button>
           </div>
         )}
-
-        {/* Collapse all diffs button */}
-        <div className="sticky bottom-3 flex justify-start pointer-events-none">
-          <button
-            type="button"
-            onClick={() => diffCollapseContextValue.triggerCollapseAll()}
-            className="pointer-events-auto ml-3 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] transition-all hover:bg-white/10"
-            style={{ backgroundColor: colors.surface, border: `1px solid ${colors.border}`, color: colors.text.secondary }}
-            title="Collapse all diffs"
-          >
-            <ChevronsUp className="w-3 h-3" />
-            <span>Collapse All</span>
-          </button>
-        </div>
 
         <div ref={endRef} />
       </div>
