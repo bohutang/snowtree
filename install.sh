@@ -26,9 +26,31 @@ fetch_latest_version() {
   fi
 
   info "Fetching latest stable release..."
-  RELEASE_JSON="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")" || error "Failed to fetch release metadata"
+  if fetch_latest_version_from_api; then
+    return 0
+  fi
+  warn "Failed to fetch release metadata from GitHub API; trying releases page..."
+  if fetch_latest_version_from_release_page; then
+    return 0
+  fi
+  error "Failed to fetch latest version. Check https://github.com/$REPO/releases or set SNOWTREE_VERSION"
+}
+
+fetch_latest_version_from_api() {
+  if ! RELEASE_JSON="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")"; then
+    return 1
+  fi
   VERSION="$(printf '%s' "$RELEASE_JSON" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
-  [ "$VERSION" != "" ] || error "Failed to parse latest version. Check https://github.com/$REPO/releases"
+  [ "$VERSION" != "" ]
+}
+
+fetch_latest_version_from_release_page() {
+  if ! REDIRECT_URL="$(curl -fsSI "https://github.com/$REPO/releases/latest" | sed -n 's/^[Ll]ocation:[[:space:]]*//p' | tail -n 1 | tr -d '\r')"; then
+    return 1
+  fi
+  [ "$REDIRECT_URL" != "" ] || return 1
+  VERSION="$(printf '%s' "$REDIRECT_URL" | sed -n 's#.*/tag/##p')"
+  [ "$VERSION" != "" ]
 }
 
 detect_platform() {
