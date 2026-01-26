@@ -64,23 +64,9 @@ export class DiffMetadataExtractor {
 
     if (!filePath || oldString === undefined || newString === undefined) return null;
 
-    // Read the current file content to get the full file after edit
-    const currentContent = await this.readFileIfExists(filePath);
-
-    // If we can read the file, the edit has been applied, so currentContent is the new full content
-    // We need to reconstruct the old full content by reversing the edit
-    if (currentContent !== null) {
-      // The file now contains newString where oldString used to be
-      // Reconstruct old content: replace newString back with oldString
-      const fullOldContent = currentContent.replace(newString, oldString);
-      return [{
-        filePath,
-        oldString: fullOldContent,
-        newString: currentContent,
-      }];
-    }
-
-    // Fallback: return the partial strings if file can't be read
+    // For Edit tool, we should show the diff between oldString and newString
+    // NOT the entire file content. The Edit tool already provides the exact
+    // strings that were changed, so we use them directly.
     return [{
       filePath,
       oldString,
