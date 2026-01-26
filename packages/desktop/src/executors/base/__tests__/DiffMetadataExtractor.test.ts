@@ -15,21 +15,9 @@ describe('DiffMetadataExtractor', () => {
   });
 
   describe('extractClaudeEdit', () => {
-    it('should return full file content when file can be read', async () => {
-      const fullFileContent = `# My Document
-
-## Section 1
-This is the updated content.
-
-## Section 2
-More content here.`;
-
+    it('should return the exact old_string and new_string from Edit tool', async () => {
       const originalSection = 'This is the original content.';
       const updatedSection = 'This is the updated content.';
-
-      // The file now contains the updated content
-      vi.mocked(fs.stat).mockResolvedValue({ size: 100 } as any);
-      vi.mocked(fs.readFile).mockResolvedValue(fullFileContent);
 
       const metadata = {
         input: {
@@ -44,45 +32,16 @@ More content here.`;
       expect(result).not.toBeNull();
       expect(result).toHaveLength(1);
       expect(result![0].filePath).toBe('/test/project/README.md');
-      // newString should be the full file content
-      expect(result![0].newString).toBe(fullFileContent);
-      // oldString should be the reconstructed full content with original text
-      expect(result![0].oldString).toContain(originalSection);
-      expect(result![0].oldString).not.toContain(updatedSection);
+      // Should return the exact strings provided by Edit tool
+      expect(result![0].oldString).toBe(originalSection);
+      expect(result![0].newString).toBe(updatedSection);
     });
 
-    it('should return partial strings when file cannot be read', async () => {
-      vi.mocked(fs.stat).mockRejectedValue(new Error('File not found'));
-
-      const metadata = {
-        input: {
-          file_path: '/test/project/missing.md',
-          old_string: 'old text',
-          new_string: 'new text',
-        },
-      };
-
-      const result = await extractor.extract('Edit', metadata);
-
-      expect(result).not.toBeNull();
-      expect(result).toHaveLength(1);
-      expect(result![0].oldString).toBe('old text');
-      expect(result![0].newString).toBe('new text');
-    });
-
-    it('should handle multiline edit replacements', async () => {
-      const fullFileContent = `function hello() {
-  console.log('Hello, World!');
-  return true;
-}`;
-
+    it('should return the exact strings for multiline edits', async () => {
       const oldCode = `console.log('Hi');
   return false;`;
       const newCode = `console.log('Hello, World!');
   return true;`;
-
-      vi.mocked(fs.stat).mockResolvedValue({ size: 100 } as any);
-      vi.mocked(fs.readFile).mockResolvedValue(fullFileContent);
 
       const metadata = {
         input: {
@@ -95,8 +54,10 @@ More content here.`;
       const result = await extractor.extract('Edit', metadata);
 
       expect(result).not.toBeNull();
-      expect(result![0].newString).toBe(fullFileContent);
-      expect(result![0].oldString).toContain(oldCode);
+      expect(result).toHaveLength(1);
+      // Should return the exact strings, not full file content
+      expect(result![0].oldString).toBe(oldCode);
+      expect(result![0].newString).toBe(newCode);
     });
 
     it('should return null for missing input', async () => {
@@ -348,43 +309,43 @@ More content here.`;
       expect(result).toBeNull();
     });
 
-    it('should skip binary files', async () => {
+    it('should skip binary files for Write tool', async () => {
       vi.mocked(fs.stat).mockResolvedValue({ size: 100 } as any);
       vi.mocked(fs.readFile).mockResolvedValue('binary\0content');
 
       const metadata = {
         input: {
           file_path: '/test/binary.bin',
-          old_string: 'old',
-          new_string: 'new',
+          content: 'new content',
         },
       };
 
-      const result = await extractor.extract('Edit', metadata);
+      const result = await extractor.extract('Write', metadata);
 
-      // Should fall back to partial strings since binary file is skipped
+      // Should treat as new file since binary file is skipped
       expect(result).not.toBeNull();
-      expect(result![0].oldString).toBe('old');
-      expect(result![0].newString).toBe('new');
+      expect(result![0].oldString).toBe('');
+      expect(result![0].newString).toBe('new content');
+      expect(result![0].isNewFile).toBe(true);
     });
 
-    it('should skip large files', async () => {
+    it('should skip large files for Write tool', async () => {
       vi.mocked(fs.stat).mockResolvedValue({ size: 2 * 1024 * 1024 } as any); // 2MB
 
       const metadata = {
         input: {
           file_path: '/test/large.md',
-          old_string: 'old',
-          new_string: 'new',
+          content: 'new content',
         },
       };
 
-      const result = await extractor.extract('Edit', metadata);
+      const result = await extractor.extract('Write', metadata);
 
-      // Should fall back to partial strings since large file is skipped
+      // Should treat as new file since large file is skipped
       expect(result).not.toBeNull();
-      expect(result![0].oldString).toBe('old');
-      expect(result![0].newString).toBe('new');
+      expect(result![0].oldString).toBe('');
+      expect(result![0].newString).toBe('new content');
+      expect(result![0].isNewFile).toBe(true);
     });
   });
 });
