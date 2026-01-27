@@ -74,6 +74,10 @@ export function setupEventListeners(services: AppServices, getMainWindow: () => 
     send('terminal:output', data);
   });
 
+  sessionManager.on('terminal-exit', (data: unknown) => {
+    send('terminal:exit', data);
+  });
+
   gitStatusManager.on('git-status-loading', (sessionId: string) => {
     send('git-status-loading', { sessionId });
   });

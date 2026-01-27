@@ -10,6 +10,7 @@ interface TerminalSession {
   pty: pty.IPty;
   sessionId: string;
   cwd: string;
+  exited?: boolean;
 }
 
 export class TerminalManager extends EventEmitter {
@@ -22,9 +23,15 @@ export class TerminalManager extends EventEmitter {
   }
 
   async createTerminalSession(sessionId: string, worktreePath: string): Promise<void> {
-    // Check if session already exists
-    if (this.terminalSessions.has(sessionId)) {
+    // Check if session already exists and is not exited
+    const existingSession = this.terminalSessions.get(sessionId);
+    if (existingSession && !existingSession.exited) {
       return;
+    }
+
+    // If session exists but exited, clean it up first
+    if (existingSession?.exited) {
+      this.terminalSessions.delete(sessionId);
     }
 
     // For Linux, use the current PATH to avoid slow shell detection
@@ -66,7 +73,11 @@ export class TerminalManager extends EventEmitter {
     // Handle PTY exit
     ptyProcess.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
       console.log(`Terminal session ${sessionId} exited with code ${exitCode}, signal ${signal}`);
-      this.terminalSessions.delete(sessionId);
+      const session = this.terminalSessions.get(sessionId);
+      if (session) {
+        session.exited = true;
+      }
+      this.emit('terminal-exit', { sessionId, exitCode, signal });
     });
 
     // Don't send any initial input - let the user interact with the terminal
@@ -78,6 +89,9 @@ export class TerminalManager extends EventEmitter {
     if (!session) {
       throw new Error('Terminal session not found');
     }
+    if (session.exited) {
+      throw new Error('Terminal session has exited');
+    }
 
     // Send the command to the PTY
     session.pty.write(command + '\r');
@@ -87,6 +101,9 @@ export class TerminalManager extends EventEmitter {
     const session = this.terminalSessions.get(sessionId);
     if (!session) {
       throw new Error('Terminal session not found');
+    }
+    if (session.exited) {
+      throw new Error('Terminal session has exited');
     }
 
     // Send raw input directly to the PTY without modification
@@ -132,7 +149,8 @@ export class TerminalManager extends EventEmitter {
   }
 
   hasSession(sessionId: string): boolean {
-    return this.terminalSessions.has(sessionId);
+    const session = this.terminalSessions.get(sessionId);
+    return session !== undefined && !session.exited;
   }
 
   async cleanup(options?: { fast?: boolean }): Promise<void> {

@@ -193,6 +193,7 @@ export interface ElectronAPI {
     onGitStatusLoading: (callback: (data: { sessionId: string }) => void) => () => void;
     onTimelineEvent: (callback: (data: { sessionId: string; event: TimelineEvent }) => void) => () => void;
     onTerminalOutput: (callback: (data: { sessionId: string; panelId?: string; id?: number; type: string; data: string; timestamp?: string }) => void) => () => void;
+    onTerminalExit: (callback: (data: { sessionId: string; exitCode: number; signal?: number }) => void) => () => void;
     onAssistantStream: (callback: (data: { sessionId: string; panelId: string; content: string }) => void) => () => void;
     onUpdateAvailable: (callback: (info: UpdateAvailableInfo) => void) => () => void;
     onUpdateDownloaded: (callback: () => void) => () => void;

@@ -70,6 +70,7 @@ export interface TerminalPanelProps {
   worktreePath?: string;
   height: number;
   focusRequestId?: number;
+  onClose?: () => void;
 }
 
 export const TerminalPanel: React.FC<TerminalPanelProps> = ({
@@ -78,6 +79,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
   worktreePath,
   height,
   focusRequestId = 0,
+  onClose,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -221,6 +223,22 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
       if (unsubscribe) unsubscribe();
     };
   }, [sessionId, panelId]);
+
+  // Listen for terminal exit events
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.events?.onTerminalExit?.((event: { sessionId: string; exitCode: number; signal?: number }) => {
+      if (event.sessionId !== sessionId) return;
+
+      // Close the terminal panel when the shell exits
+      if (onClose) {
+        onClose();
+      }
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [sessionId, onClose]);
 
   useEffect(() => {
     let cancelled = false;

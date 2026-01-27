@@ -22,6 +22,7 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({
     isResizing,
     focusRequestId,
     handleResizeStart,
+    toggleTerminal,
   } = useTerminalDock(sessionId, containerRef);
 
   if (terminalCollapsed) return null;
@@ -55,6 +56,7 @@ export const TerminalDock: React.FC<TerminalDockProps> = ({
         worktreePath={worktreePath}
         height={terminalHeight}
         focusRequestId={focusRequestId}
+        onClose={toggleTerminal}
       />
     </>
   );

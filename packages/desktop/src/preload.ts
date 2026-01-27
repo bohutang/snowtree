@@ -136,6 +136,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onGitStatusLoading: (cb: (data: unknown) => void) => on('git-status-loading', cb),
     onTimelineEvent: (cb: (data: { sessionId: string; event: unknown }) => void) => on('timeline:event', cb),
     onTerminalOutput: (cb: (data: unknown) => void) => on('terminal:output', cb),
+    onTerminalExit: (cb: (data: unknown) => void) => on('terminal:exit', cb),
     onAssistantStream: (cb: (data: { sessionId: string; panelId: string; content: string }) => void) => on('assistant:stream', cb),
     onUpdateAvailable: (cb: (info: { version: string; releaseNotes?: string }) => void) => on('update:available', cb),
     onUpdateDownloaded: (cb: () => void) => on('update:downloaded', cb),

@@ -81,7 +81,12 @@ export class SessionManager extends EventEmitter {
         timestamp: new Date().toISOString()
       });
     });
-    
+
+    // Forward terminal exit events
+    this.terminalSessionManager.on('terminal-exit', (data) => {
+      this.emit('terminal-exit', data);
+    });
+
     // Forward zombie process detection events
     this.terminalSessionManager.on('zombie-processes-detected', (data) => {
       this.emit('zombie-processes-detected', data);
