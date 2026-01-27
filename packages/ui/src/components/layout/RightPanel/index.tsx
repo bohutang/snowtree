@@ -693,7 +693,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(
                         {stagedHunks}/{totalHunks} hunks
                       </span>
                       <div
-                        className="h-1.5 w-24 rounded overflow-hidden flex-shrink-0"
+                        className="h-1.5 w-16 rounded overflow-hidden flex-shrink-0"
                         style={{ backgroundColor: colors.bg.hover }}
                         aria-hidden="true"
                       >
