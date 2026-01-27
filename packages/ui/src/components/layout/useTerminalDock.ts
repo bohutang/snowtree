@@ -160,5 +160,6 @@ export const useTerminalDock = (sessionId: string, containerRef: RefObject<HTMLE
     isResizing,
     focusRequestId,
     handleResizeStart,
+    toggleTerminal,
   };
 };

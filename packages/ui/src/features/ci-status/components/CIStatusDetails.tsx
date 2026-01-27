@@ -50,6 +50,47 @@ function formatRelativeTime(dateStr: string | null): string {
   return `${diffDay}d ago`;
 }
 
+function formatDuration(startedAt: string | null, completedAt: string | null): string {
+  if (!startedAt || !completedAt) return '';
+
+  const start = new Date(startedAt);
+  const end = new Date(completedAt);
+  const diffMs = end.getTime() - start.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+
+  if (diffSec < 60) return `${diffSec}s`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHour = Math.floor(diffMin / 60);
+  const remainingMin = diffMin % 60;
+  if (diffHour < 24) return remainingMin > 0 ? `${diffHour}h ${remainingMin}m` : `${diffHour}h`;
+  const diffDay = Math.floor(diffHour / 24);
+  const remainingHour = diffHour % 24;
+  return remainingHour > 0 ? `${diffDay}d ${remainingHour}h` : `${diffDay}d`;
+}
+
+function getCheckTimeDisplay(check: CICheck): string {
+  // Pending/Queued: no time display
+  if (check.status === 'queued') {
+    return '';
+  }
+
+  // Running: show start time
+  if (check.status === 'in_progress') {
+    return formatRelativeTime(check.startedAt);
+  }
+
+  // Completed: show duration only for success/failure, not for skipped/neutral
+  if (check.status === 'completed') {
+    if (check.conclusion === 'skipped' || check.conclusion === 'neutral') {
+      return '';
+    }
+    return formatDuration(check.startedAt, check.completedAt);
+  }
+
+  return '';
+}
+
 function getStatusLabel(status: CheckStatus, conclusion: CheckConclusion): string {
   if (status === 'in_progress') return 'running';
   if (status === 'queued') return 'pending';
@@ -118,7 +159,7 @@ const CheckGroup: React.FC<CheckGroupProps> = ({ title, checks, onCheckClick, co
           check.conclusion
         );
         const hasLink = Boolean(check.detailsUrl);
-        const timeStr = formatRelativeTime(check.completedAt || check.startedAt);
+        const timeStr = getCheckTimeDisplay(check);
         const statusLabel = getStatusLabel(check.status, check.conclusion);
 
         return (
